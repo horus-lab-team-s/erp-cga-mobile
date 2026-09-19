@@ -1,5 +1,6 @@
 import 'package:cga_mobile/adaptateurs/magasin_memoire.dart';
 import 'package:cga_mobile/domaine/depot.dart';
+import 'package:cga_mobile/api/client_api.dart';
 import 'package:cga_mobile/api/remise.dart';
 import 'package:cga_mobile/domaine/file_d_attente.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -213,6 +214,24 @@ void main() {
       for (final code in [429, 500, 502, 503, 504, 418]) {
         expect(sortDuCode(code), Reponse.indisponible, reason: 'code $code');
       }
+    });
+  });
+  group('Le nom donné à la photo', () {
+    test('porte la date et l\'heure de la prise de vue', () {
+      final nom = ClientApi.nomDeLaPhotoPourEssai(
+        DateTime(2026, 9, 19, 21, 10),
+      );
+
+      expect(nom, 'photo-2026-09-19-2110.jpg');
+    });
+
+    test('complète les mois, jours et heures à un chiffre', () {
+      // ⚠️ Sans le remplissage, « photo-2026-1-5-90.jpg » ne se trie pas et ne
+      // se lit pas : le cabinet voit des noms de longueurs différentes dans une
+      // liste où ils devraient s'aligner.
+      final nom = ClientApi.nomDeLaPhotoPourEssai(DateTime(2026, 1, 5, 9, 7));
+
+      expect(nom, 'photo-2026-01-05-0907.jpg');
     });
   });
 }

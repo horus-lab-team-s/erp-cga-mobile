@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import '../domaine/file_d_attente.dart';
 import 'remise.dart';
 
@@ -170,6 +172,17 @@ class ClientApi {
         'entreprise': entreprise,
         'canal': 'MOBILE',
         'empreinte': empreinte,
+        // ⚠️ UN NOM QUI DIT QUELQUE CHOSE À QUI LE LIRA.
+        //
+        // Ce champ était laissé vide, et la pièce arrivait sans nom dans la
+        // boîte de réception du cabinet. C'est pourtant le seul repère lisible
+        // avant d'ouvrir le document : le comptable voyait une ligne muette
+        // parmi d'autres qui portaient « f-2026-0439.pdf ».
+        //
+        // Le nom que rend l'appareil photo ne vaut rien non plus : c'est un
+        // identifiant technique du sélecteur d'images. On pose donc la date et
+        // l'heure de la PRISE DE VUE, qui situent la pièce sans rien inventer.
+        'nom_fichier': _nomDeLaPhoto(prisLe),
         // ⚠️ La date de la PRISE DE VUE, pas celle de la remise. C'est elle que
         // la comptabilité retient : prendre celle de la remise ferait glisser au
         // mois suivant toute pièce photographiée le 31 au soir sans réseau.
@@ -202,6 +215,24 @@ class ClientApi {
       return const [];
     }
     return [for (final d in dossiers) d as String];
+  }
+
+  /// « photo-2026-09-19-2110.jpg » : la date et l'heure de la prise de vue.
+  ///
+  /// ⚠️ Deux photos dans la même minute portent le même nom, et c'est sans
+  /// conséquence : le nom n'identifie rien, il renseigne. L'identité de la pièce
+  /// vient de l'empreinte de ses octets, et elle seule.
+  /// ⚠️ Ouvert aux seuls cas d'essai. Le nom le dit, pour que personne ne
+  /// l'emploie ailleurs en croyant à une API.
+  @visibleForTesting
+  static String nomDeLaPhotoPourEssai(DateTime prisLe) => _nomDeLaPhoto(prisLe);
+
+  static String _nomDeLaPhoto(DateTime prisLe) {
+    String deuxChiffres(int n) => n.toString().padLeft(2, '0');
+    final jour =
+        '${prisLe.year}-${deuxChiffres(prisLe.month)}-${deuxChiffres(prisLe.day)}';
+    final heure = '${deuxChiffres(prisLe.hour)}${deuxChiffres(prisLe.minute)}';
+    return 'photo-$jour-$heure.jpg';
   }
 
   void _poserLaSession(HttpClientRequest requete) {
