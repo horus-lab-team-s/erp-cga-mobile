@@ -1,5 +1,6 @@
 import 'package:cga_mobile/adaptateurs/magasin_memoire.dart';
 import 'package:cga_mobile/domaine/depot.dart';
+import 'package:cga_mobile/api/remise.dart';
 import 'package:cga_mobile/domaine/file_d_attente.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -43,9 +44,9 @@ void main() {
       final file = FileDAttente(MagasinEnMemoire());
       await file.ajouter(_depot('A'));
 
-      final remis = await file.vider((_) async => Reponse.accepte);
+      final vidage = await file.vider((_) async => Reponse.accepte);
 
-      expect(remis, 1);
+      expect(vidage.remis, 1);
       expect(await file.enAttente(), isEmpty);
       expect(await file.refuses(), isEmpty);
     });
@@ -64,9 +65,9 @@ void main() {
       final file = FileDAttente(MagasinEnMemoire());
       await file.ajouter(_depot('A'));
 
-      final remis = await file.vider((_) async => Reponse.indisponible);
+      final vidage = await file.vider((_) async => Reponse.indisponible);
 
-      expect(remis, 0);
+      expect(vidage.remis, 0);
       expect(
         (await file.enAttente()).single.tentatives,
         1,
@@ -104,13 +105,13 @@ void main() {
       await file.ajouter(_depot('B', jour: 2));
       final tentes = <String>[];
 
-      final remis = await file.vider((d) async {
+      final vidage = await file.vider((d) async {
         tentes.add(d.identifiant);
         return d.identifiant == 'A' ? Reponse.refuse : Reponse.accepte;
       });
 
       expect(tentes, ['A', 'B']);
-      expect(remis, 1);
+      expect(vidage.remis, 1);
     });
   });
 
@@ -152,6 +153,66 @@ void main() {
             "c'est ce qui rendra la remise idempotente quand le magasin "
             'durable écrira la file sur le disque',
       );
+    });
+  });
+  group('La session expirée', () {
+    test("laisse le dépôt en attente, et ne compte pas de tentative", () async {
+      final file = FileDAttente(MagasinEnMemoire());
+      await file.ajouter(_depot('A'));
+
+      final vidage = await file.vider((_) async => Reponse.sessionExpiree);
+
+      expect(vidage.remis, 0);
+      expect(vidage.sessionAExpire, isTrue);
+      final reste = (await file.enAttente()).single;
+      expect(
+        reste.tentatives,
+        0,
+        reason:
+            "six ouvertures avec une session périmée franchiraient sinon le "
+            "garde-fou, et les pièces cesseraient de partir sans que rien ne le "
+            "dise à un adhérent qui n'a rien fait de mal",
+      );
+      expect(await file.refuses(), isEmpty);
+    });
+
+    test('arrête la file, comme une indisponibilité', () async {
+      final file = FileDAttente(MagasinEnMemoire());
+      await file.ajouter(_depot('A', jour: 1));
+      await file.ajouter(_depot('B', jour: 2));
+      final tentes = <String>[];
+
+      await file.vider((d) async {
+        tentes.add(d.identifiant);
+        return Reponse.sessionExpiree;
+      });
+
+      expect(tentes, ['A']);
+    });
+  });
+
+  group('La traduction des codes du serveur', () {
+    test('201 et 200 partent : le second est un rejeu, pas une erreur', () {
+      expect(sortDuCode(201), Reponse.accepte);
+      expect(sortDuCode(200), Reponse.accepte);
+    });
+
+    test('401 demande de se reconnecter, il ne refuse pas la pièce', () {
+      expect(sortDuCode(401), Reponse.sessionExpiree);
+    });
+
+    test('ce que le serveur ne prendra jamais sort de la file', () {
+      for (final code in [403, 404, 409, 413, 415, 422]) {
+        expect(sortDuCode(code), Reponse.refuse, reason: 'code $code');
+      }
+    });
+
+    test('un code imprévu penche vers la reprise', () {
+      // ⚠️ Se tromper de ce côté coûte une tentative ; se tromper de l'autre
+      // jette la pièce d'un adhérent pour un code qu'on n'avait pas anticipé.
+      for (final code in [429, 500, 502, 503, 504, 418]) {
+        expect(sortDuCode(code), Reponse.indisponible, reason: 'code $code');
+      }
     });
   });
 }

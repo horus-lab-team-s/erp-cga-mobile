@@ -30,7 +30,7 @@ très bien sur le site depuis le même téléphone.
 
 ```bash
 flutter pub get
-flutter test                                              # 8 cas, la règle de renvoi
+flutter test                                              # 23 cas : renvoi et durabilité
 flutter run --dart-define=CGA_API=http://10.0.2.2:8010    # émulateur Android
 ```
 
@@ -41,7 +41,7 @@ serveur éteint. Sur un téléphone réel, mettre l'adresse de la machine sur le
 L'adresse se règle à la compilation et non dans un fichier, pour qu'une version de
 démonstration ne puisse pas se retrouver branchée sur la production par un réglage oublié.
 
-Vérifié sur cette machine : `flutter analyze` sans remarque, `flutter test` 8 cas au vert,
+Vérifié sur cette machine : `flutter analyze --fatal-infos` sans remarque, 23 cas au vert,
 `flutter build apk --debug` produit l'APK. Flutter 3.41.4, Dart 3.11.1.
 
 ## Comment c'est rangé
@@ -50,7 +50,7 @@ Vérifié sur cette machine : `flutter analyze` sans remarque, `flutter test` 8 
 | --- | --- |
 | `lib/domaine/` | Le dépôt, la file et sa règle de renvoi. Aucune dépendance à Flutter ni au réseau |
 | `lib/ports/` | Ce dont le domaine a besoin, dit comme un contrat : le magasin durable |
-| `lib/adaptateurs/` | Les implémentations de ces contrats |
+| `lib/adaptateurs/` | Les implémentations de ces contrats : la file écrite sur l'appareil |
 | `lib/api/` | Le lien avec le serveur |
 | `lib/ecrans/` | Ce que l'adhérent voit |
 
@@ -74,19 +74,57 @@ tests qui s'exécutent en une seconde.
    Une réponse perdue en route fait rejouer l'envoi ; sans cet identifiant, la même facture
    entrerait deux fois dans la comptabilité de l'adhérent.
 
+## La remise, et pourquoi elle est rejouable
+
+Le serveur prend la pièce en **deux temps** : les octets d'abord, la pièce ensuite, qui
+cite l'empreinte que le serveur a calculée dessus et qu'il **revérifie** en relisant le
+fichier.
+
+⚠️ **L'idempotence vient de là, et non de l'identifiant de l'appareil.** Ce dépôt affirmait
+le contraire dans sa première version. Confronté au code du serveur, c'était faux, et la
+vérité est meilleure : deux envois des mêmes octets sur le même dossier produisent la même
+empreinte, donc la même clé de pièce, et le second rend la pièce **inchangée** en 200 avec
+`rejeu: true`. La propriété ne dépend donc pas d'un numéro que le client pourrait se
+tromper de recopier.
+
+La traduction des codes est écrite une seule fois, dans `sortDuCode` :
+
+| Réponse du serveur | Sort du dépôt |
+| --- | --- |
+| 201, 200 (rejeu) | part, et sort de la file |
+| 401 | **se reconnecter** — la pièce reste en attente, sans tentative comptée |
+| 403, 404, 409, 413, 415, 422 | refusé : rien ne changera avec le temps |
+| 5xx, 429, imprévu, pas de réseau | on réessaiera |
+
+⚠️ Le 401 a été ajouté après coup, et son absence coûtait cher. Il tombait dans « refusé »,
+faute de mieux : un adhérent qui avait laissé l'application quelques jours retrouvait au
+retour **toutes ses pièces déclarées irrécupérables**. Rien n'était refusé, personne n'avait
+demandé.
+
+## Vérifier contre un vrai serveur
+
+Les cas d'essai ne touchent jamais au réseau. Ils ne peuvent donc pas dire si l'enveloppe
+multipart, écrite à la main, est correcte — et c'est là que ça se joue : un `\r\n` manquant
+avant la séparation finale fait lire au serveur deux octets de trop, l'empreinte change à
+chaque envoi, et l'idempotence disparaît sans le moindre message.
+
+```bash
+cd ../erp-cga-backend && outils/pile-de-demonstration.sh neuve
+cd ../erp-cga-mobile  && dart run outils/remise_reelle.dart
+```
+
+L'outil envoie une pièce, la renvoie, et vérifie que le serveur répond « rejeu ». Puis il
+ferme la session et vérifie que la file s'arrête sans condamner la pièce.
+
 ## ⚠️ Ce qui n'est pas encore là, dans l'ordre où il doit venir
 
-1. **Le magasin durable.** La file vit aujourd'hui en mémoire : elle ne survit pas à la
-   fermeture de l'application. C'est exactement ce que cette application existe pour ne pas
-   perdre, et c'est donc le premier chantier. Le port est écrit, l'adaptateur reste à
-   faire.
-2. **La prise de vue.** Le bouton est en place et désactivé : sa place a été décidée avant,
-   pour ne pas être gagnée plus tard sur un écran déjà plein.
-3. **Le renvoi en tâche de fond**, réveillé quand le réseau revient.
-4. **La session gardée dans le magasin protégé du système.** Elle est pour l'instant en
+1. **La prise de vue.** Le bouton est en place et désactivé : sa place a été décidée avant,
+   pour ne pas être gagnée plus tard sur un écran déjà plein. C'est le prochain chantier,
+   et il est maintenant le seul qui empêche un usage réel.
+2. **Le renvoi en tâche de fond**, réveillé quand le réseau revient. Aujourd'hui l'envoi se
+   déclenche à la main, depuis l'accueil.
+3. **La session gardée dans le magasin protégé du système.** Elle est pour l'instant en
    mémoire seule : l'adhérent se reconnecte à chaque lancement. L'écrire à moitié vaudrait
    moins que ne pas l'écrire.
-5. **L'envoi du fichier lui-même**, en plusieurs morceaux si la connexion est mauvaise.
-
-Tant que le point 1 n'est pas fait, cette application se montre mais ne se met pas entre
-les mains d'un adhérent.
+4. **L'envoi en plusieurs morceaux** si la connexion est mauvaise. Le fichier part
+   aujourd'hui d'un bloc, et une coupure au milieu fait tout recommencer.

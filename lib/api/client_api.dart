@@ -1,6 +1,9 @@
 import 'dart:convert';
 import 'dart:io';
 
+import '../domaine/file_d_attente.dart';
+import 'remise.dart';
+
 /// Le lien avec le serveur.
 ///
 /// ─────────────────────────────────────────────────────────────────────────────
@@ -103,6 +106,83 @@ class ClientApi {
       return null;
     }
     return jsonDecode(corps);
+  }
+
+  /// Envoie les octets d'un justificatif, et rend l'empreinte que le serveur a
+  /// calculée dessus.
+  ///
+  /// ⚠️ L'enveloppe multipart est écrite à la main, et les bornes comptent : un
+  /// `\r\n` manquant avant la ligne de séparation finale fait lire au serveur
+  /// deux octets de trop dans le fichier. L'empreinte change alors à chaque
+  /// envoi, l'idempotence disparaît sans bruit, et la même facture entre deux
+  /// fois. On écrit donc les octets bruts, jamais une chaîne encodée.
+  Future<FichierDepose> envoyerLeFichier({
+    required String entreprise,
+    required File fichier,
+  }) async {
+    final separateur = '----cga${DateTime.now().microsecondsSinceEpoch}';
+    final requete = await _client.postUrl(
+      base.resolve('/collecte/fichiers?entreprise=$entreprise'),
+    );
+    _poserLaSession(requete);
+    requete.headers.set(
+      HttpHeaders.contentTypeHeader,
+      'multipart/form-data; boundary=$separateur',
+    );
+    final tete = utf8.encode(
+      '--$separateur\r\n'
+      'Content-Disposition: form-data; name="fichier"; '
+      'filename="${fichier.uri.pathSegments.last}"\r\n'
+      // ⚠️ Le type déclaré ici n'est pas cru par le serveur : il lit les
+      // premiers octets et décide lui-même. On l'envoie quand même, parce que
+      // l'enveloppe multipart l'attend, mais aucune décision n'en dépend.
+      'Content-Type: application/octet-stream\r\n\r\n',
+    );
+    final pied = utf8.encode('\r\n--$separateur--\r\n');
+    requete.add(tete);
+    requete.add(await fichier.readAsBytes());
+    requete.add(pied);
+
+    final reponse = await requete.close();
+    final corps = await reponse.transform(utf8.decoder).join();
+    final sort = sortDuCode(reponse.statusCode);
+    if (sort != Reponse.accepte) {
+      return FichierDepose(reponse: sort);
+    }
+    final json = jsonDecode(corps) as Map<String, dynamic>;
+    return FichierDepose(
+      reponse: Reponse.accepte,
+      empreinte: json['empreinte'] as String,
+    );
+  }
+
+  /// Crée la pièce qui cite l'empreinte, et rend le sort du dépôt.
+  Future<Reponse> creerLaPiece({
+    required String entreprise,
+    required String empreinte,
+    required DateTime prisLe,
+  }) async {
+    final requete = await _client.postUrl(base.resolve('/collecte/pieces'));
+    _poserLaSession(requete);
+    requete.headers.contentType = ContentType.json;
+    requete.write(
+      jsonEncode({
+        'entreprise': entreprise,
+        'canal': 'MOBILE',
+        'empreinte': empreinte,
+        // ⚠️ La date de la PRISE DE VUE, pas celle de la remise. C'est elle que
+        // la comptabilité retient : prendre celle de la remise ferait glisser au
+        // mois suivant toute pièce photographiée le 31 au soir sans réseau.
+        //
+        // Le serveur la borne à quatre-vingt-dix jours d'antériorité. Au-delà,
+        // ce n'est plus un dépôt mais une reprise d'historique, et il répond 422
+        // — un refus, à juste titre.
+        'depose_le': prisLe.toIso8601String().split('T').first,
+      }),
+    );
+    final reponse = await requete.close();
+    await reponse.drain<void>();
+    return sortDuCode(reponse.statusCode);
   }
 
   void _poserLaSession(HttpClientRequest requete) {

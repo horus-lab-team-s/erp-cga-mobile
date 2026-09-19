@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
-import 'adaptateurs/magasin_memoire.dart';
+import 'package:path_provider/path_provider.dart';
+
+import 'adaptateurs/magasin_fichier.dart';
 import 'api/client_api.dart';
 import 'domaine/file_d_attente.dart';
 import 'ecrans/accueil.dart';
@@ -19,9 +21,12 @@ import 'ecrans/connexion.dart';
 /// Ce qu'elle fait, et qui ne peut se faire ailleurs : photographier une pièce,
 /// l'enregistrer sur l'appareil, et la faire partir quand le réseau revient.
 ///
-/// ⚠️ Le magasin est ici EN MÉMOIRE. La file ne survit donc pas encore à la
-/// fermeture de l'application, ce qui est exactement ce qu'il faut corriger en
-/// premier. Voir la feuille de route du README.
+/// ⚠️ LE MAGASIN EST DURABLE, ET IL EST CHOISI ICI, UNE SEULE FOIS.
+///
+/// C'est le seul endroit du programme qui sache où l'appareil range ses
+/// documents. Tout le reste — la file, sa règle de renvoi, les écrans — parle à
+/// un port et ignore qu'il y a un disque derrière. C'est ce qui permet
+/// d'éprouver la règle sur un poste, dans un dossier temporaire, sans émulateur.
 /// ─────────────────────────────────────────────────────────────────────────────
 void main() {
   runApp(const ApplicationCga());
@@ -38,8 +43,25 @@ class _EtatDeLApplication extends State<ApplicationCga> {
   late final ClientApi _client = ClientApi(
     base: Uri.parse(ClientApi.adresseParDefaut),
   );
-  late final FileDAttente _file = FileDAttente(MagasinEnMemoire());
+  FileDAttente? _file;
   bool _connecte = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _ouvrirLaFile();
+  }
+
+  Future<void> _ouvrirLaFile() async {
+    // ⚠️ `getApplicationDocumentsDirectory` et non un dossier de cache. Le
+    // système vide les caches quand la place manque, et il le fait sans
+    // prévenir : la file y aurait disparu précisément le jour où l'appareil
+    // était plein, c'est-à-dire le jour où l'adhérent avait le plus de pièces
+    // en attente.
+    final dossier = await getApplicationDocumentsDirectory();
+    if (!mounted) return;
+    setState(() => _file = FileDAttente(MagasinDeFichier(dossier)));
+  }
 
   @override
   void dispose() {
@@ -62,16 +84,23 @@ class _EtatDeLApplication extends State<ApplicationCga> {
           brightness: Brightness.dark,
         ),
       ),
-      home: _connecte
-          ? EcranAccueil(
-              client: _client,
-              file: _file,
-              quandDeconnecte: () => setState(() => _connecte = false),
-            )
-          : EcranDeConnexion(
-              client: _client,
-              quandConnecte: () => setState(() => _connecte = true),
-            ),
+      home: switch ((_file, _connecte)) {
+        // Le temps d'ouvrir la file. C'est immédiat en pratique, mais rendre
+        // l'accueil avant qu'elle existe afficherait « rien en attente » à
+        // quelqu'un qui a vingt pièces en attente.
+        (null, _) => const Scaffold(
+          body: Center(child: CircularProgressIndicator()),
+        ),
+        (final FileDAttente file, true) => EcranAccueil(
+          client: _client,
+          file: file,
+          quandDeconnecte: () => setState(() => _connecte = false),
+        ),
+        (_, false) => EcranDeConnexion(
+          client: _client,
+          quandConnecte: () => setState(() => _connecte = true),
+        ),
+      },
     );
   }
 }

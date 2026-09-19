@@ -25,7 +25,8 @@ enum EtatDuDepot {
   remis,
 
   /// Le serveur l'a refusé pour une raison qui ne passera pas avec le temps :
-  /// pièce illisible, dossier inconnu, mois déjà clos.
+  /// type de document non accepté, fichier trop volumineux, doublon certain,
+  /// dossier hors du périmètre de l'adhérent.
   ///
   /// ⚠️ Un refus n'est pas une panne de réseau. Le distinguer est ce qui évite
   /// qu'une file se vide en boucle contre un serveur qui dira toujours non.
@@ -44,12 +45,20 @@ class Depot {
     this.motifDuRefus,
   });
 
-  /// Engendré sur l'appareil, pas par le serveur.
+  /// Engendré sur l'appareil. ⚠️ Il ne sert qu'ICI, à retrouver le dépôt dans la
+  /// file : **le serveur ne le voit jamais.**
   ///
-  /// ⚠️ C'est lui qui rend la remise **idempotente**. Sans identifiant posé
-  /// avant le départ, un envoi parti dont la réponse s'est perdue serait rejoué,
-  /// et la même facture entrerait deux fois dans la comptabilité de l'adhérent.
-  /// Le serveur reconnaît l'identifiant et rend le même accusé.
+  /// La charpente de ce dépôt affirmait le contraire — « le serveur reconnaît
+  /// l'identifiant et rend le même accusé ». C'était faux, et la confrontation
+  /// avec le code du serveur l'a montré : l'idempotence y est acquise autrement,
+  /// et mieux. La pièce est identifiée par l'**empreinte de ses octets**, comme
+  /// le magasin de fichiers l'est déjà. Redéposer le même fichier sur le même
+  /// dossier rend la même pièce, inchangée, en 200 avec `rejeu: true`.
+  ///
+  /// La propriété qui compte est donc tenue, mais par le contenu et non par un
+  /// numéro que le client aurait pu se tromper de recopier. Un identifiant tiré
+  /// au sort aurait laissé au seul détecteur de doublons le soin d'attraper un
+  /// rejeu, ce que le serveur dit explicitement avoir refusé de faire.
   final String identifiant;
 
   /// Le dossier comptable auquel la pièce se rattache.

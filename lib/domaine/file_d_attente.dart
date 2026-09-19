@@ -6,11 +6,25 @@ enum Reponse {
   /// Reçu. Le dépôt sort de la file.
   accepte,
 
-  /// Refusé pour une raison qui ne changera pas : pièce illisible, dossier
-  /// inconnu, mois déjà clos. ⚠️ Ne jamais réessayer : la file tournerait
-  /// indéfiniment contre un serveur qui dira toujours non, en vidant la batterie
-  /// et le forfait de l'adhérent.
+  /// Refusé pour une raison qui ne changera pas : type de document non accepté,
+  /// fichier trop volumineux, doublon certain, dossier hors périmètre.
+  /// ⚠️ Ne jamais réessayer : la file tournerait indéfiniment contre un serveur
+  /// qui dira toujours non, en vidant la batterie et le forfait de l'adhérent.
   refuse,
+
+  /// La session n'est plus valable : il faut se reconnecter.
+  ///
+  /// ⚠️ **CE CAS MANQUAIT, ET SON ABSENCE COÛTAIT LA FILE ENTIÈRE.**
+  ///
+  /// Une session expire. Sans ce troisième cas, un 401 tombait dans « refusé »,
+  /// faute de mieux : chaque dépôt en attente était marqué « à reprendre », et
+  /// l'adhérent qui avait simplement laissé l'application quelques jours
+  /// retrouvait au retour toutes ses pièces déclarées irrécupérables. Rien
+  /// n'était pourtant refusé : personne n'avait demandé.
+  ///
+  /// Le dépôt reste donc en attente, **sans compter de tentative**, et la file
+  /// s'arrête pour que l'écran puisse demander de se reconnecter.
+  sessionExpiree,
 
   /// Rien n'a abouti : pas de réseau, serveur injoignable, délai dépassé. On
   /// réessaiera.
@@ -68,9 +82,7 @@ class FileDAttente {
   /// manque pour les suivants : insister ferait vingt tentatives inutiles et
   /// perdrait l'ordre de remise. On rend la main, le prochain réveil reprendra
   /// au même endroit.
-  ///
-  /// Rend le nombre de dépôts effectivement remis.
-  Future<int> vider(Future<Reponse> Function(Depot) remettre) async {
+  Future<Vidage> vider(Future<Reponse> Function(Depot) remettre) async {
     var remis = 0;
     for (final depot in await enAttente()) {
       if (depot.tentatives >= tentativesMaximales) {
@@ -83,11 +95,36 @@ class FileDAttente {
           remis++;
         case Reponse.refuse:
           await _magasin.ranger(depot.avec(etat: EtatDuDepot.refuse));
+        case Reponse.sessionExpiree:
+          // ⚠️ AUCUNE TENTATIVE COMPTÉE, et le dépôt reste en attente.
+          //
+          // Compter une tentative ici ferait franchir le garde-fou des six
+          // essais à un adhérent qui n'a rien fait de mal : six ouvertures de
+          // l'application avec une session périmée, et ses pièces cessaient
+          // d'être envoyées sans que rien ne le dise. Une session expirée n'est
+          // pas un échec du dépôt, c'est un échec de la demande.
+          return Vidage(remis: remis, sessionAExpire: true);
         case Reponse.indisponible:
           await _magasin.ranger(depot.avec(tentatives: depot.tentatives + 1));
-          return remis;
+          return Vidage(remis: remis);
       }
     }
-    return remis;
+    return Vidage(remis: remis);
   }
+}
+
+/// Ce qu'une tentative de vidage a produit.
+///
+/// ⚠️ Le compte de remises ne suffisait pas. « Zéro remis » se lit aussi bien
+/// comme « rien n'attendait » que comme « la session a expiré », et l'écran ne
+/// pouvait donc pas savoir s'il devait demander de se reconnecter. Une réponse
+/// qui force son lecteur à deviner est une réponse incomplète.
+class Vidage {
+  const Vidage({required this.remis, this.sessionAExpire = false});
+
+  /// Combien de dépôts sont réellement partis.
+  final int remis;
+
+  /// Vrai quand la file s'est arrêtée parce qu'il faut se reconnecter.
+  final bool sessionAExpire;
 }

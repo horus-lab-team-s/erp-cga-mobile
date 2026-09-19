@@ -11,6 +11,22 @@
 # ⚠️ La version de Flutter est FIXÉE. Un canal suivi en continu fait entrer une
 # mise à jour du cadre dans une proposition qui ne parle pas d'elle, et l'échec
 # qui en résulte se lit comme une faute de l'auteur.
+#
+# ⚠️ CE QUE CETTE CHAÎNE NE PEUT PAS VÉRIFIER, ET QUI COMPTE AUTANT
+#
+# Aucun cas d'essai ne touche au réseau. L'enveloppe multipart de
+# `client_api.dart` est donc écrite à la main SANS QUE RIEN ICI NE LA PROUVE. Or
+# c'est là que ça se joue : un « \r\n » manquant avant la séparation finale fait
+# lire au serveur deux octets de trop, l'empreinte du fichier change à chaque
+# envoi, l'idempotence disparaît sans le moindre message, et la même facture
+# entre deux fois dans la comptabilité de l'adhérent. Les deux dépôts ont l'air
+# normaux, à l'écran comme au journal.
+#
+# `outils/remise_reelle.dart` le prouve, mais il lui faut la pile du serveur
+# debout. Il se joue donc à la main, avant une mise en production :
+#
+#     cd ../erp-cga-backend && outils/pile-de-demonstration.sh neuve
+#     cd ../erp-cga-mobile  && dart run outils/remise_reelle.dart
 # ─────────────────────────────────────────────────────────────────────────────
 
 name: Vérification

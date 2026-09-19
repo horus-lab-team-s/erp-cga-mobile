@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../api/client_api.dart';
+import '../api/remise.dart';
 import '../domaine/depot.dart';
 import '../domaine/file_d_attente.dart';
 
@@ -31,6 +32,7 @@ class EcranAccueil extends StatefulWidget {
 class _EtatDeLAccueil extends State<EcranAccueil> {
   List<Depot> _enAttente = const [];
   List<Depot> _refuses = const [];
+  bool _envoiEnCours = false;
 
   @override
   void initState() {
@@ -53,12 +55,54 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
     widget.quandDeconnecte();
   }
 
+  /// Tente de vider la file, et rend compte de ce qui s'est passé.
+  ///
+  /// ⚠️ **LE CAS DE LA SESSION EXPIRÉE EST LE SEUL QUI CHANGE D'ÉCRAN.** Sans
+  /// lui, l'adhérent voyait « 0 pièce envoyée » sans savoir pourquoi, et
+  /// réappuyait indéfiniment sur un bouton qui ne pouvait pas marcher.
+  Future<void> _envoyer() async {
+    setState(() => _envoiEnCours = true);
+    final vidage = await widget.file.vider(Remise(widget.client).remettre);
+    if (!mounted) return;
+    setState(() => _envoiEnCours = false);
+    await _relire();
+    if (!mounted) return;
+    if (vidage.sessionAExpire) {
+      // Rien n'est perdu : la file garde ses pièces, sans tentative comptée.
+      widget.quandDeconnecte();
+      return;
+    }
+    final reste = _enAttente.length;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(switch ((vidage.remis, reste)) {
+          (0, 0) => 'Rien à envoyer.',
+          (0, _) => "Pas de réseau. Vos pièces partiront dès qu'il revient.",
+          (final n, 0) =>
+            '$n pièce${n > 1 ? "s" : ""} envoyée${n > 1 ? "s" : ""}.',
+          (final n, final r) => '$n envoyée${n > 1 ? "s" : ""}, $r en attente.',
+        }),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Mes justificatifs'),
         actions: [
+          IconButton(
+            onPressed: _envoiEnCours || _enAttente.isEmpty ? null : _envoyer,
+            icon: _envoiEnCours
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.cloud_upload_outlined),
+            tooltip: 'Envoyer maintenant',
+          ),
           IconButton(
             onPressed: _sortir,
             icon: const Icon(Icons.logout),
