@@ -256,14 +256,21 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
       //
       // ⚠️ L'infobulle et l'étiquette de lecture d'écran RESTENT : ce qui est
       // évident à l'œil ne l'est pas à l'oreille.
-      floatingActionButton: FloatingActionButton.large(
+      // ⚠️ La taille ORDINAIRE, 56 points, et non la grande de 96.
+      //
+      // La grande était choisie pour appuyer l'importance du geste. À l'écran
+      // elle faisait l'inverse : un disque d'un quart de la largeur, qui tirait
+      // l'œil avant les compteurs et couvrait la seconde carte dès qu'une pièce
+      // attendait. 56 points restent bien au-dessus de la cible minimale de 48,
+      // donc tenables d'une main occupée, sans écraser la page.
+      floatingActionButton: FloatingActionButton(
         key: const Key('bouton-photographier'),
         onPressed: prete ? _photographier : null,
         backgroundColor: prete ? couleurs.primary : couleurs.surfaceContainer,
         foregroundColor: prete ? couleurs.onPrimary : couleurs.onSurfaceVariant,
         tooltip: 'Photographier une pièce',
         shape: const CircleBorder(),
-        child: const Icon(Icons.photo_camera_rounded, size: 34),
+        child: const Icon(Icons.photo_camera_rounded, size: 26),
       ),
     );
   }
