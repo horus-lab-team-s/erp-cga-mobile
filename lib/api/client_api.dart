@@ -185,6 +185,25 @@ class ClientApi {
     return sortDuCode(reponse.statusCode);
   }
 
+  /// Les dossiers que ce compte a le droit de déposer.
+  ///
+  /// ⚠️ Lus sur le serveur à chaque ouverture de session, et jamais devinés ni
+  /// gardés d'une fois sur l'autre. Un adhérent peut avoir deux entreprises, en
+  /// perdre une, en gagner une autre : une liste retenue sur l'appareil
+  /// proposerait un dossier que le serveur refuse, et le refus arriverait après
+  /// la photo, quand il est trop tard pour la reprendre.
+  Future<List<String>> mesDossiers() async {
+    final moi = await lire('/transverse/moi');
+    if (moi is! Map<String, dynamic>) {
+      return const [];
+    }
+    final dossiers = moi['dossiers'];
+    if (dossiers is! List) {
+      return const [];
+    }
+    return [for (final d in dossiers) d as String];
+  }
+
   void _poserLaSession(HttpClientRequest requete) {
     final session = _session;
     if (session != null) {

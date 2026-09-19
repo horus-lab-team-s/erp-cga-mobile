@@ -70,6 +70,13 @@ class FileDAttente {
     return tous.where((d) => d.etat == EtatDuDepot.enAttente).toList();
   }
 
+  /// Tout ce que la file connaît, quel que soit l'état.
+  ///
+  /// ⚠️ Sert à savoir quelles copies de photos sont encore utiles. Se fonder sur
+  /// la seule attente effacerait les pièces refusées, que l'adhérent doit
+  /// pouvoir regarder.
+  Future<List<Depot>> tous() => _magasin.tous();
+
   /// Ce que l'adhérent doit reprendre lui-même.
   Future<List<Depot>> refuses() async {
     final tous = await _magasin.tous();

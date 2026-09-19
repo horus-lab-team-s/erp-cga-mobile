@@ -4,6 +4,7 @@ import '../api/client_api.dart';
 import '../api/remise.dart';
 import '../domaine/depot.dart';
 import '../domaine/file_d_attente.dart';
+import '../domaine/prise_de_vue.dart';
 
 /// L'écran d'après la connexion : l'état de la file, et rien d'autre pour
 /// l'instant.
@@ -18,11 +19,13 @@ class EcranAccueil extends StatefulWidget {
     super.key,
     required this.client,
     required this.file,
+    required this.priseDeVue,
     required this.quandDeconnecte,
   });
 
   final ClientApi client;
   final FileDAttente file;
+  final PriseDeVue priseDeVue;
   final VoidCallback quandDeconnecte;
 
   @override
@@ -33,11 +36,27 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
   List<Depot> _enAttente = const [];
   List<Depot> _refuses = const [];
   bool _envoiEnCours = false;
+  List<String> _dossiers = const [];
 
   @override
   void initState() {
     super.initState();
     _relire();
+    _lireLesDossiers();
+  }
+
+  Future<void> _lireLesDossiers() async {
+    List<String> dossiers;
+    try {
+      dossiers = await widget.client.mesDossiers();
+    } on Object {
+      // Sans réseau au lancement, on ne connaît pas encore les dossiers. Le
+      // bouton reste inactif, et un message le dit plutôt que de laisser
+      // l'adhérent appuyer sur un déclencheur qui ne répond pas.
+      dossiers = const [];
+    }
+    if (!mounted) return;
+    setState(() => _dossiers = dossiers);
   }
 
   Future<void> _relire() async {
@@ -55,6 +74,57 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
     widget.quandDeconnecte();
   }
 
+  Future<void> _photographier() async {
+    final dossier = await _quelDossier();
+    if (dossier == null || !mounted) return;
+    final depot = await widget.priseDeVue.pour(dossier);
+    if (!mounted) return;
+    if (depot == null) {
+      // ⚠️ Renoncer n'est pas une erreur, et n'appelle aucun message. On ferme
+      // l'appareil photo par réflexe bien plus souvent qu'on ne le croit.
+      return;
+    }
+    await _relire();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Enregistrée. Elle partira toute seule.')),
+    );
+  }
+
+  /// Le dossier auquel rattacher la pièce.
+  ///
+  /// ⚠️ On ne demande RIEN quand il n'y en a qu'un, et c'est le cas de presque
+  /// tous les adhérents. Une question dont la réponse est forcée est une étape
+  /// de plus entre la facture en main et la photo prise.
+  Future<String?> _quelDossier() async {
+    if (_dossiers.length == 1) {
+      return _dossiers.single;
+    }
+    if (_dossiers.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            "Aucun dossier ouvert à votre nom. Voyez avec le cabinet.",
+          ),
+        ),
+      );
+      return null;
+    }
+    return showDialog<String>(
+      context: context,
+      builder: (contexte) => SimpleDialog(
+        title: const Text('Pour quelle entreprise ?'),
+        children: [
+          for (final d in _dossiers)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(contexte, d),
+              child: Text(d),
+            ),
+        ],
+      ),
+    );
+  }
+
   /// Tente de vider la file, et rend compte de ce qui s'est passé.
   ///
   /// ⚠️ **LE CAS DE LA SESSION EXPIRÉE EST LE SEUL QUI CHANGE D'ÉCRAN.** Sans
@@ -65,6 +135,10 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
     final vidage = await widget.file.vider(Remise(widget.client).remettre);
     if (!mounted) return;
     setState(() => _envoiEnCours = false);
+    // ⚠️ APRÈS le vidage. Une copie effacée avant l'accusé de réception perd la
+    // pièce si la réponse se perd en route ; une copie qui reste après remplit
+    // le téléphone en quelques semaines.
+    await widget.priseDeVue.effacerLesCopiesDevenuesInutiles();
     await _relire();
     if (!mounted) return;
     if (vidage.sessionAExpire) {
@@ -130,10 +204,7 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
-        // La prise de vue arrive avec l'appareil photo, point 2 de la feuille de
-        // route. Le bouton existe déjà pour que la place qu'il prend soit
-        // décidée avant, et non gagnée sur un écran déjà plein.
-        onPressed: null,
+        onPressed: _photographier,
         icon: const Icon(Icons.photo_camera),
         label: const Text('Photographier'),
       ),

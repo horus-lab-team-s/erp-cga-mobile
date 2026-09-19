@@ -30,7 +30,7 @@ très bien sur le site depuis le même téléphone.
 
 ```bash
 flutter pub get
-flutter test                                              # 23 cas : renvoi et durabilité
+flutter test                                              # 33 cas : renvoi, durabilité, prise de vue
 flutter run --dart-define=CGA_API=http://10.0.2.2:8010    # émulateur Android
 ```
 
@@ -41,7 +41,7 @@ serveur éteint. Sur un téléphone réel, mettre l'adresse de la machine sur le
 L'adresse se règle à la compilation et non dans un fichier, pour qu'une version de
 démonstration ne puisse pas se retrouver branchée sur la production par un réglage oublié.
 
-Vérifié sur cette machine : `flutter analyze --fatal-infos` sans remarque, 23 cas au vert,
+Vérifié sur cette machine : `flutter analyze --fatal-infos` sans remarque, 33 cas au vert,
 `flutter build apk --debug` produit l'APK. Flutter 3.41.4, Dart 3.11.1.
 
 ## Comment c'est rangé
@@ -49,7 +49,7 @@ Vérifié sur cette machine : `flutter analyze --fatal-infos` sans remarque, 23 
 | Dossier | Ce qu'il tient |
 | --- | --- |
 | `lib/domaine/` | Le dépôt, la file et sa règle de renvoi. Aucune dépendance à Flutter ni au réseau |
-| `lib/ports/` | Ce dont le domaine a besoin, dit comme un contrat : le magasin durable |
+| `lib/ports/` | Ce dont le domaine a besoin, dit comme un contrat : le magasin durable, l'appareil photo |
 | `lib/adaptateurs/` | Les implémentations de ces contrats : la file écrite sur l'appareil |
 | `lib/api/` | Le lien avec le serveur |
 | `lib/ecrans/` | Ce que l'adhérent voit |
@@ -116,15 +116,50 @@ cd ../erp-cga-mobile  && dart run outils/remise_reelle.dart
 L'outil envoie une pièce, la renvoie, et vérifie que le serveur répond « rejeu ». Puis il
 ferme la session et vérifie que la file s'arrête sans condamner la pièce.
 
+## La prise de vue, et la copie qui la sauve
+
+L'appareil photo du système range son résultat dans un **cache**. Le système vide les caches
+quand la place manque, sans prévenir et sans demander.
+
+⚠️ **Si la file gardait ce chemin-là**, voici ce qui arriverait : l'adhérent photographie six
+factures un samedi, sans réseau ; le téléphone se remplit ; le lundi, la file tente ses six
+remises et ne trouve plus aucun fichier. Les six dépôts sortent de la file comme **refusés**.
+Le pire n'est pas la perte : c'est qu'elle ressemble à un refus du cabinet.
+
+Les octets sont donc recopiés à côté de la file, dans le dossier des documents, que le
+système ne reprend jamais. Et la copie s'efface **après** la remise, jamais avant : effacée
+plus tôt, elle perdrait la pièce si la réponse se perdait en route. Une pièce **refusée**
+garde sa copie, pour que l'adhérent puisse regarder ce que le cabinet n'a pas pris.
+
+L'image est réduite à 2 000 pixels de large, qualité 85. Ce n'est pas une optimisation : un
+téléphone récent produit des images de plusieurs dizaines de mégaoctets, le serveur refuse
+au-delà de vingt, et ce refus se traduit en « rien ne changera ». L'adhérent verrait ses
+factures rejetées sans comprendre, alors que le cabinet n'a rien refusé.
+
 ## ⚠️ Ce qui n'est pas encore là, dans l'ordre où il doit venir
 
-1. **La prise de vue.** Le bouton est en place et désactivé : sa place a été décidée avant,
-   pour ne pas être gagnée plus tard sur un écran déjà plein. C'est le prochain chantier,
-   et il est maintenant le seul qui empêche un usage réel.
-2. **Le renvoi en tâche de fond**, réveillé quand le réseau revient. Aujourd'hui l'envoi se
-   déclenche à la main, depuis l'accueil.
-3. **La session gardée dans le magasin protégé du système.** Elle est pour l'instant en
+1. **Le renvoi en tâche de fond**, réveillé quand le réseau revient. L'envoi se déclenche
+   aujourd'hui à la main, depuis l'accueil.
+2. **La session gardée dans le magasin protégé du système.** Elle est pour l'instant en
    mémoire seule : l'adhérent se reconnecte à chaque lancement. L'écrire à moitié vaudrait
    moins que ne pas l'écrire.
-4. **L'envoi en plusieurs morceaux** si la connexion est mauvaise. Le fichier part
+3. **L'envoi en plusieurs morceaux** si la connexion est mauvaise. Le fichier part
    aujourd'hui d'un bloc, et une coupure au milieu fait tout recommencer.
+
+## ⚠️ Ce qui n'a jamais tourné sur un vrai téléphone
+
+**Aucun appareil Android ou iOS n'a exécuté cette application.** Il n'y en a pas sur la
+machine où elle est écrite. Ce qui est donc vérifié, et ce qui ne l'est pas :
+
+| Vérifié | Comment |
+| --- | --- |
+| La règle de renvoi, la durabilité, la recopie | 33 cas, avec une source d'images feinte |
+| Le protocole, l'enveloppe multipart, le rejeu | `outils/remise_reelle.dart` contre le serveur réel |
+| Que le projet compile et s'assemble | `flutter build apk` |
+
+| **Non vérifié** | Ce qu'il faudra regarder au premier essai sur un appareil |
+| --- | --- |
+| L'appareil photo lui-même | `AppareilPhotoDuSysteme` fait quinze lignes et appelle l'appareil du système. Il n'a jamais été exécuté |
+| L'autorisation d'accès à l'appareil photo | Android la demande à l'usage ; rien ne prouve ici que le dialogue s'affiche |
+| L'orientation de l'image | Une photo prise en paysage peut arriver tournée. Cela se voit à l'œil, et seulement sur un appareil |
+| Le dossier des documents | Son chemin réel dépend du système. Les cas d'essai emploient un dossier temporaire |

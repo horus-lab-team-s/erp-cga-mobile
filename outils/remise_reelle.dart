@@ -3,8 +3,9 @@ import 'dart:io';
 import 'package:cga_mobile/adaptateurs/magasin_fichier.dart';
 import 'package:cga_mobile/api/client_api.dart';
 import 'package:cga_mobile/api/remise.dart';
-import 'package:cga_mobile/domaine/depot.dart';
 import 'package:cga_mobile/domaine/file_d_attente.dart';
+import 'package:cga_mobile/domaine/prise_de_vue.dart';
+import 'package:cga_mobile/ports/appareil_photo.dart';
 
 /// Joue une remise complète contre un serveur qui tourne vraiment.
 ///
@@ -48,6 +49,18 @@ const String dossier = String.fromEnvironment(
 
 void dire(String texte) => stdout.writeln(texte);
 
+/// Ce que l'appareil photo du système rend : un fichier dans un CACHE, que le
+/// système peut reprendre à tout moment. On le reproduit fidèlement, parce que
+/// c'est de là que vient la règle de recopie qu'on veut éprouver ici.
+class AppareilFeint implements AppareilPhoto {
+  AppareilFeint(this.cache);
+
+  final Directory cache;
+
+  @override
+  Future<String?> photographier() async => (await _photoDeFacture(cache)).path;
+}
+
 Future<File> _photoDeFacture(Directory ou) async {
   // Une vraie image JPEG : le serveur décide du type en lisant les octets, il
   // ne croit pas l'extension. Les octets sont tirés au hasard pour que chaque
@@ -83,16 +96,39 @@ Future<int> main() async {
     verifier('session ouverte', ouverte, courriel);
     if (!ouverte) return 1;
 
-    final photo = await _photoDeFacture(travail);
+    final dossiers = await client.mesDossiers();
+    verifier(
+      'le serveur dit quels dossiers sont ouverts',
+      dossiers.contains(dossier),
+      dossiers.join(', '),
+    );
+
+    final cache = await Directory('${travail.path}/cache').create();
+    final photos = Directory('${travail.path}/photos');
     final file = FileDAttente(MagasinDeFichier(travail));
     final remise = Remise(client);
-    final depot = Depot(
-      identifiant: 'D-${DateTime.now().microsecondsSinceEpoch}',
-      dossier: dossier,
-      cheminDuFichier: photo.path,
-      prisLe: DateTime.now(),
+    final prise = PriseDeVue(
+      appareil: AppareilFeint(cache),
+      file: file,
+      photos: photos,
     );
-    await file.ajouter(depot);
+
+    dire('\nPrise de vue');
+    final depot = await prise.pour(dossier);
+    verifier('la pièce entre dans la file', depot != null);
+    if (depot == null) return 1;
+    verifier(
+      'la copie est hors du cache',
+      depot.cheminDuFichier.startsWith(photos.path),
+      "sinon le système la reprend et la remise croit à un refus",
+    );
+    // ⚠️ Ce que le système fait quand la place manque, et qui ne se produit
+    // jamais sur un poste de développement.
+    await cache.delete(recursive: true);
+    verifier(
+      'et elle survit au vidage du cache',
+      await File(depot.cheminDuFichier).exists(),
+    );
 
     dire('\nPremier envoi');
     final premier = await file.vider(remise.remettre);
@@ -104,28 +140,38 @@ Future<int> main() async {
     verifier('la file est vide', (await file.enAttente()).isEmpty);
     verifier('aucune pièce à reprendre', (await file.refuses()).isEmpty);
 
-    dire('\nRejeu : la même pièce, comme après une réponse perdue en route');
+    dire('\nRejeu : LES MÊMES OCTETS, comme après une réponse perdue en route');
+    // ⚠️ Le même dépôt, donc le même fichier, donc la même empreinte. C'est le
+    // seul contrôle qui prouve que l'enveloppe multipart écrite à la main est
+    // correcte : si elle ajoutait ou retranchait un octet, l'empreinte
+    // changerait ici et le serveur créerait une SECONDE pièce.
     await file.ajouter(depot);
     final second = await file.vider(remise.remettre);
     verifier(
       'le serveur accepte le rejeu',
       second.remis == 1,
-      'sans quoi une réponse perdue perdrait la pièce',
+      "sans quoi une réponse perdue ferait entrer la facture deux fois",
     );
     verifier('rien à reprendre', (await file.refuses()).isEmpty);
 
+    dire('\nLes copies devenues inutiles');
+    verifier(
+      'la copie est effacée, la pièce étant remise',
+      await prise.effacerLesCopiesDevenuesInutiles() == 1,
+    );
+    verifier(
+      'et le fichier a bien disparu',
+      !await File(depot.cheminDuFichier).exists(),
+    );
+
     dire('\nSession fermée : ce qui doit arriver à la file');
     await client.fermerLaSession();
-    final orphelin = Depot(
-      identifiant: 'D-orphelin',
-      dossier: dossier,
-      cheminDuFichier: photo.path,
-      prisLe: DateTime.now(),
-    );
-    await file.ajouter(orphelin);
+    await cache.create(recursive: true);
+    final orphelin = await prise.pour(dossier);
+    verifier('une pièce attend', orphelin != null);
     final apres = await file.vider(remise.remettre);
-    verifier('la file s\'arrête', apres.remis == 0);
-    verifier('et dit qu\'il faut se reconnecter', apres.sessionAExpire);
+    verifier("la file s'arrête", apres.remis == 0);
+    verifier("et dit qu'il faut se reconnecter", apres.sessionAExpire);
     final reste = await file.enAttente();
     verifier('la pièce reste en attente', reste.length == 1);
     verifier(
@@ -134,8 +180,13 @@ Future<int> main() async {
       'sinon six ouvertures suffisaient à la condamner',
     );
     verifier(
-      'et elle n\'est pas déclarée refusée',
+      "et elle n'est pas déclarée refusée",
       (await file.refuses()).isEmpty,
+    );
+    verifier(
+      'sa copie est gardée',
+      orphelin != null && await File(orphelin.cheminDuFichier).exists(),
+      'une pièce non remise ne s\'efface pas',
     );
   } finally {
     client.fermer();

@@ -1,10 +1,14 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import 'package:path_provider/path_provider.dart';
 
+import 'adaptateurs/appareil_photo_systeme.dart';
 import 'adaptateurs/magasin_fichier.dart';
 import 'api/client_api.dart';
 import 'domaine/file_d_attente.dart';
+import 'domaine/prise_de_vue.dart';
 import 'ecrans/accueil.dart';
 import 'ecrans/connexion.dart';
 
@@ -44,6 +48,7 @@ class _EtatDeLApplication extends State<ApplicationCga> {
     base: Uri.parse(ClientApi.adresseParDefaut),
   );
   FileDAttente? _file;
+  PriseDeVue? _priseDeVue;
   bool _connecte = false;
 
   @override
@@ -60,7 +65,19 @@ class _EtatDeLApplication extends State<ApplicationCga> {
     // en attente.
     final dossier = await getApplicationDocumentsDirectory();
     if (!mounted) return;
-    setState(() => _file = FileDAttente(MagasinDeFichier(dossier)));
+    final file = FileDAttente(MagasinDeFichier(dossier));
+    setState(() {
+      _file = file;
+      _priseDeVue = PriseDeVue(
+        appareil: AppareilPhotoDuSysteme(),
+        file: file,
+        // ⚠️ Les copies de photos vivent À CÔTÉ de la file, dans le dossier des
+        // documents, et non dans un cache. Le système vide les caches quand la
+        // place manque : la file garderait alors le chemin de fichiers disparus,
+        // et la remise les prendrait pour des pièces refusées.
+        photos: Directory('${dossier.path}/photos'),
+      );
+    });
   }
 
   @override
@@ -94,6 +111,7 @@ class _EtatDeLApplication extends State<ApplicationCga> {
         (final FileDAttente file, true) => EcranAccueil(
           client: _client,
           file: file,
+          priseDeVue: _priseDeVue!,
           quandDeconnecte: () => setState(() => _connecte = false),
         ),
         (_, false) => EcranDeConnexion(
