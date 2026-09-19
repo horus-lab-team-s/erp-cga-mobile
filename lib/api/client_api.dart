@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../domaine/file_d_attente.dart';
+import '../ports/service_de_session.dart';
 import 'remise.dart';
 
 /// Le lien avec le serveur.
@@ -25,7 +26,7 @@ import 'remise.dart';
 /// ouvrirait deux vérités sur la même requête, et c'est exactement le défaut que
 /// le socle multi-locataire du serveur a été construit pour rendre impossible.
 /// ─────────────────────────────────────────────────────────────────────────────
-class ClientApi {
+class ClientApi implements ServiceDeSession {
   ClientApi({required this.base});
 
   /// L'adresse du serveur, sous-domaine du cabinet compris.
@@ -58,6 +59,7 @@ class ClientApi {
     ..connectionTimeout = const Duration(seconds: 10);
 
   /// Ouvre une session. Rend vrai si le serveur a reconnu le compte.
+  @override
   Future<bool> ouvrirUneSession(String courriel, String motDePasse) async {
     final requete = await _client.postUrl(base.resolve('/transverse/session'));
     requete.headers.contentType = ContentType.json;
@@ -82,6 +84,7 @@ class ClientApi {
   /// ⚠️ Dans cet ordre, et l'oubli a lieu même si l'appel échoue. Garder un
   /// jeton dont on ne sait plus s'il vaut encore ne sert à rien et laisse
   /// l'application dans un état qu'aucun écran ne sait montrer.
+  @override
   Future<void> fermerLaSession() async {
     try {
       final requete = await _client.deleteUrl(
@@ -205,6 +208,7 @@ class ClientApi {
   /// perdre une, en gagner une autre : une liste retenue sur l'appareil
   /// proposerait un dossier que le serveur refuse, et le refus arriverait après
   /// la photo, quand il est trop tard pour la reprendre.
+  @override
   Future<List<String>> mesDossiers() async {
     final moi = await lire('/transverse/moi');
     if (moi is! Map<String, dynamic>) {

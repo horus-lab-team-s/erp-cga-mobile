@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  L'indigo de l'institution, celui de `lib/marque.dart` et du système du web.
+
+  ⚠️ Écrit ici AUSSI, et ce n'est pas une duplication qu'on peut éviter : le
+  fond de lancement est dessiné par Android avant qu'une seule ligne de Dart ne
+  s'exécute. Si cette valeur diverge de celle du code, l'adhérent voit un
+  clignotement de couleur au démarrage, à chaque ouverture.
+-->
+<resources>
+    <color name="indigo_institution">#2E1B4D</color>
+</resources>

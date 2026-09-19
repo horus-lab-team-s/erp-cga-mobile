@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  L'icône adaptative du cabinet.
+
+  ⚠️ Sans ce fichier, Android enferme l'icône dans un rond BLANC et la réduit au
+  centre : sur l'appareil d'essai, un petit carré indigo flottant dans un
+  disque. Ici le système découpe lui-même les deux couches, et l'indigo remplit
+  toute la forme, ronde ou arrondie selon le constructeur.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/indigo_institution" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <monochrome android:drawable="@mipmap/ic_launcher_foreground" />
+</adaptive-icon>

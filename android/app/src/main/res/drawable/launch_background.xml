@@ -1,12 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Modify this file to customize your launch splash screen -->
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:drawable="@android:color/white" />
+<!--
+  Ce que l'adhérent voit pendant le dixième de seconde où l'application se monte.
 
-    <!-- You can insert your own image assets here -->
-    <!-- <item>
-        <bitmap
-            android:gravity="center"
-            android:src="@mipmap/launch_image" />
-    </item> -->
+  ⚠️ C'était du BLANC, le défaut de Flutter. L'écran de connexion ouvre sur un
+  bandeau indigo : le passage du blanc à l'indigo produisait un éclair à chaque
+  ouverture. Le même fond des deux côtés le supprime, sans rien animer.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/indigo_institution" />
 </layer-list>

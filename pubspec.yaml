@@ -59,6 +59,12 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  # Le logo du cabinet. ⚠️ Servi depuis l'application, jamais depuis le réseau :
+  # l'écran de connexion doit s'afficher entier quand il n'y a pas de réseau,
+  # puisque c'est précisément là qu'on vient le chercher.
+  assets:
+    - assets/marque/
+
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg

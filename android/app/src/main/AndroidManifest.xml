@@ -1,6 +1,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- ⚠️ `android:label` est le nom SOUS L'ICÔNE, dans le tiroir
+         d'applications. C'était « cga_mobile », le nom technique du projet :
+         l'adhérent cherchait « CGA » et ne trouvait rien. Court, parce
+         qu'Android tronque au-delà d'une douzaine de caractères.
+
+         ⚠️ Un commentaire ne se place pas ENTRE DEUX ATTRIBUTS : le manifeste
+         cesse alors d'être du XML valide, et la construction s'arrête sur
+         « Error parsing LocalFile ». -->
     <application
-        android:label="cga_mobile"
+        android:label="CGA Broad Range"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

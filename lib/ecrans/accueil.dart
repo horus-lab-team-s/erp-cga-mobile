@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../api/client_api.dart';
-import '../api/remise.dart';
 import '../domaine/depot.dart';
+import '../ports/service_de_session.dart';
 import '../domaine/file_d_attente.dart';
 import '../domaine/prise_de_vue.dart';
 
@@ -17,15 +16,22 @@ import '../domaine/prise_de_vue.dart';
 class EcranAccueil extends StatefulWidget {
   const EcranAccueil({
     super.key,
-    required this.client,
+    required this.session,
     required this.file,
     required this.priseDeVue,
+    required this.remettre,
     required this.quandDeconnecte,
   });
 
-  final ClientApi client;
+  final ServiceDeSession session;
   final FileDAttente file;
   final PriseDeVue priseDeVue;
+
+  /// ⚠️ Une fonction, et non un objet `Remise`. L'écran n'a pas à savoir
+  /// comment une pièce part : cela le rend vérifiable sans réseau, et c'est
+  /// exactement ce qui manquait.
+  final Future<Reponse> Function(Depot) remettre;
+
   final VoidCallback quandDeconnecte;
 
   @override
@@ -48,7 +54,7 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
   Future<void> _lireLesDossiers() async {
     List<String> dossiers;
     try {
-      dossiers = await widget.client.mesDossiers();
+      dossiers = await widget.session.mesDossiers();
     } on Object {
       // Sans réseau au lancement, on ne connaît pas encore les dossiers. Le
       // bouton reste inactif, et un message le dit plutôt que de laisser
@@ -70,7 +76,7 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
   }
 
   Future<void> _sortir() async {
-    await widget.client.fermerLaSession();
+    await widget.session.fermerLaSession();
     widget.quandDeconnecte();
   }
 
@@ -132,7 +138,7 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
   /// réappuyait indéfiniment sur un bouton qui ne pouvait pas marcher.
   Future<void> _envoyer() async {
     setState(() => _envoiEnCours = true);
-    final vidage = await widget.file.vider(Remise(widget.client).remettre);
+    final vidage = await widget.file.vider(widget.remettre);
     if (!mounted) return;
     setState(() => _envoiEnCours = false);
     // ⚠️ APRÈS le vidage. Une copie effacée avant l'accusé de réception perd la
@@ -162,22 +168,29 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
 
   @override
   Widget build(BuildContext context) {
+    final couleurs = Theme.of(context).colorScheme;
+    final prete = _dossiers.isNotEmpty;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Mes justificatifs'),
         actions: [
           IconButton(
+            key: const Key('bouton-envoyer'),
             onPressed: _envoiEnCours || _enAttente.isEmpty ? null : _envoyer,
             icon: _envoiEnCours
                 ? const SizedBox(
                     width: 18,
                     height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2.2,
+                      color: Colors.white,
+                    ),
                   )
                 : const Icon(Icons.cloud_upload_outlined),
             tooltip: 'Envoyer maintenant',
           ),
           IconButton(
+            key: const Key('bouton-sortir'),
             onPressed: _sortir,
             icon: const Icon(Icons.logout),
             tooltip: 'Se déconnecter',
@@ -187,50 +200,196 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
       body: RefreshIndicator(
         onRefresh: _relire,
         child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
           children: [
+            if (prete)
+              _Bandeau(
+                // ⚠️ Le dossier est écrit en toutes lettres. Un adhérent qui a
+                // deux entreprises doit savoir sur laquelle il dépose AVANT de
+                // photographier, pas après.
+                texte: _dossiers.length == 1
+                    ? 'Dossier ${_dossiers.single}'
+                    : '${_dossiers.length} dossiers à votre nom',
+                icone: Icons.business_outlined,
+              )
+            else
+              _Bandeau(
+                texte: "Aucun dossier connu pour l'instant.",
+                icone: Icons.cloud_off_outlined,
+                avertissement: true,
+              ),
+            const SizedBox(height: 20),
             _Compteur(
+              cle: 'compteur-attente',
               titre: 'En attente de remise',
               nombre: _enAttente.length,
               // ⚠️ Zéro en attente n'est pas un vide à cacher : c'est la bonne
               // nouvelle que l'adhérent est venu chercher.
               vide: 'Tout est parti.',
+              plein: 'Partiront dès que le réseau le permet.',
+              icone: Icons.schedule_outlined,
+              teinte: couleurs.secondaryContainer,
+              surTeinte: couleurs.onSecondaryContainer,
             ),
+            const SizedBox(height: 12),
             _Compteur(
+              cle: 'compteur-reprendre',
               titre: 'À reprendre',
               nombre: _refuses.length,
               vide: 'Rien à reprendre.',
+              plein: 'Le cabinet ne les a pas prises. À rephotographier.',
+              icone: Icons.replay_outlined,
+              teinte: _refuses.isEmpty
+                  ? couleurs.surfaceContainer
+                  : couleurs.errorContainer,
+              surTeinte: _refuses.isEmpty
+                  ? couleurs.onSurfaceVariant
+                  : couleurs.onErrorContainer,
             ),
           ],
         ),
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _photographier,
-        icon: const Icon(Icons.photo_camera),
+        key: const Key('bouton-photographier'),
+        onPressed: prete ? _photographier : null,
+        backgroundColor: prete ? couleurs.primary : couleurs.surfaceContainer,
+        foregroundColor: prete ? couleurs.onPrimary : couleurs.onSurfaceVariant,
+        icon: const Icon(Icons.photo_camera_outlined),
         label: const Text('Photographier'),
       ),
     );
   }
 }
 
-class _Compteur extends StatelessWidget {
-  const _Compteur({
-    required this.titre,
-    required this.nombre,
-    required this.vide,
+/// Une ligne d'information, sobre, en tête d'écran.
+class _Bandeau extends StatelessWidget {
+  const _Bandeau({
+    required this.texte,
+    required this.icone,
+    this.avertissement = false,
   });
 
-  final String titre;
-  final int nombre;
-  final String vide;
+  final String texte;
+  final IconData icone;
+  final bool avertissement;
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      title: Text(titre),
-      subtitle: Text(nombre == 0 ? vide : '$nombre'),
-      trailing: Text(
-        '$nombre',
-        style: Theme.of(context).textTheme.headlineSmall,
+    final couleurs = Theme.of(context).colorScheme;
+    final fond = avertissement
+        ? couleurs.errorContainer
+        : couleurs.secondaryContainer;
+    final encre = avertissement
+        ? couleurs.onErrorContainer
+        : couleurs.onSecondaryContainer;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: fond,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Icon(icone, size: 19, color: encre),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              texte,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: encre,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Un compte, et ce qu'il veut dire.
+///
+/// ⚠️ Le nombre ne se suffit pas. « 3 » sous « À reprendre » ne dit pas quoi
+/// faire ; « Le cabinet ne les a pas prises. À rephotographier. » le dit. Et
+/// l'écart entre zéro et le reste se lit aussi à la teinte du cadre, jamais à
+/// elle seule.
+class _Compteur extends StatelessWidget {
+  const _Compteur({
+    required this.cle,
+    required this.titre,
+    required this.nombre,
+    required this.vide,
+    required this.plein,
+    required this.icone,
+    required this.teinte,
+    required this.surTeinte,
+  });
+
+  final String cle;
+  final String titre;
+  final int nombre;
+  final String vide;
+  final String plein;
+  final IconData icone;
+  final Color teinte;
+  final Color surTeinte;
+
+  @override
+  Widget build(BuildContext context) {
+    final couleurs = Theme.of(context).colorScheme;
+    return Card(
+      key: Key(cle),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+        child: Row(
+          children: [
+            Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                color: teinte,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icone, size: 22, color: surTeinte),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    titre,
+                    style: TextStyle(
+                      fontSize: 15.5,
+                      fontWeight: FontWeight.w600,
+                      color: couleurs.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    nombre == 0 ? vide : plein,
+                    style: TextStyle(
+                      fontSize: 13,
+                      height: 1.35,
+                      color: couleurs.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              '$nombre',
+              key: Key('$cle-nombre'),
+              style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.w600,
+                color: nombre == 0 ? couleurs.onSurfaceVariant : surTeinte,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -7,8 +7,10 @@ import 'package:path_provider/path_provider.dart';
 import 'adaptateurs/appareil_photo_systeme.dart';
 import 'adaptateurs/magasin_fichier.dart';
 import 'api/client_api.dart';
+import 'api/remise.dart';
 import 'domaine/file_d_attente.dart';
 import 'domaine/prise_de_vue.dart';
+import 'marque.dart';
 import 'ecrans/accueil.dart';
 import 'ecrans/connexion.dart';
 
@@ -91,16 +93,11 @@ class _EtatDeLApplication extends State<ApplicationCga> {
     return MaterialApp(
       title: 'CGA Broad Range',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        // Le vert du produit, celui du document de conception et de la vitrine.
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF0E9463)),
-      ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF34D399),
-          brightness: Brightness.dark,
-        ),
-      ),
+      // ⚠️ LES COULEURS VIENNENT DU LOGO DU CABINET, pas d'une graine choisie
+      // au jugé. L'application était verte : le vert ne figure nulle part dans
+      // la marque. Voir `marque.dart`, qui traduit les jetons du web.
+      theme: themeClair(),
+      darkTheme: themeSombre(),
       home: switch ((_file, _connecte)) {
         // Le temps d'ouvrir la file. C'est immédiat en pratique, mais rendre
         // l'accueil avant qu'elle existe afficherait « rien en attente » à
@@ -109,13 +106,14 @@ class _EtatDeLApplication extends State<ApplicationCga> {
           body: Center(child: CircularProgressIndicator()),
         ),
         (final FileDAttente file, true) => EcranAccueil(
-          client: _client,
+          session: _client,
           file: file,
           priseDeVue: _priseDeVue!,
+          remettre: Remise(_client).remettre,
           quandDeconnecte: () => setState(() => _connecte = false),
         ),
         (_, false) => EcranDeConnexion(
-          client: _client,
+          session: _client,
           quandConnecte: () => setState(() => _connecte = true),
         ),
       },
