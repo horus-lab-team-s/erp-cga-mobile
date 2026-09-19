@@ -13,6 +13,7 @@ import 'domaine/prise_de_vue.dart';
 import 'marque.dart';
 import 'ecrans/accueil.dart';
 import 'ecrans/connexion.dart';
+import 'ecrans/ouverture.dart';
 
 /// L'application de terrain de l'adhérent.
 ///
@@ -102,9 +103,10 @@ class _EtatDeLApplication extends State<ApplicationCga> {
         // Le temps d'ouvrir la file. C'est immédiat en pratique, mais rendre
         // l'accueil avant qu'elle existe afficherait « rien en attente » à
         // quelqu'un qui a vingt pièces en attente.
-        (null, _) => const Scaffold(
-          body: Center(child: CircularProgressIndicator()),
-        ),
+        // ⚠️ Pas une roue grise sur fond nu : voir `EcranDOuverture`. Entre le
+        // démarrage indigo d'Android et le bandeau indigo de la connexion, une
+        // page blanche faisait un éclair à chaque ouverture.
+        (null, _) => const EcranDOuverture(),
         (final FileDAttente file, true) => EcranAccueil(
           session: _client,
           file: file,

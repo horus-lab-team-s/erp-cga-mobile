@@ -212,6 +212,9 @@ void main() {
         find.byKey(const Key('bouton-photographier')),
       );
       expect(bouton.onPressed, isNull);
+      // ⚠️ L'étiquette de lecture d'écran survit à la disparition du mot :
+      // ce qui est évident à l'œil ne l'est pas à l'oreille.
+      expect(bouton.tooltip, 'Photographier une pièce');
       expect(find.textContaining('Aucun dossier connu'), findsOneWidget);
     });
 

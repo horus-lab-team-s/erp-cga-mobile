@@ -249,13 +249,21 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
           ],
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
+      // ⚠️ UN BOUTON ROND, SANS ÉTIQUETTE. Le geste est le seul de l'écran, et
+      // une caméra se reconnaît sans qu'on l'écrive. Le mot « Photographier »
+      // allongeait le bouton jusqu'au tiers de la largeur pour ne rien
+      // apprendre, et couvrait la deuxième carte dès qu'une pièce attendait.
+      //
+      // ⚠️ L'infobulle et l'étiquette de lecture d'écran RESTENT : ce qui est
+      // évident à l'œil ne l'est pas à l'oreille.
+      floatingActionButton: FloatingActionButton.large(
         key: const Key('bouton-photographier'),
         onPressed: prete ? _photographier : null,
         backgroundColor: prete ? couleurs.primary : couleurs.surfaceContainer,
         foregroundColor: prete ? couleurs.onPrimary : couleurs.onSurfaceVariant,
-        icon: const Icon(Icons.photo_camera_outlined),
-        label: const Text('Photographier'),
+        tooltip: 'Photographier une pièce',
+        shape: const CircleBorder(),
+        child: const Icon(Icons.photo_camera_rounded, size: 34),
       ),
     );
   }
