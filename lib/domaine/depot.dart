@@ -76,11 +76,7 @@ class Depot {
   /// reprendre.
   final String? motifDuRefus;
 
-  Depot avec({
-    EtatDuDepot? etat,
-    int? tentatives,
-    String? motifDuRefus,
-  }) {
+  Depot avec({EtatDuDepot? etat, int? tentatives, String? motifDuRefus}) {
     return Depot(
       identifiant: identifiant,
       dossier: dossier,
@@ -93,22 +89,22 @@ class Depot {
   }
 
   Map<String, dynamic> versJson() => {
-        'identifiant': identifiant,
-        'dossier': dossier,
-        'chemin_du_fichier': cheminDuFichier,
-        'pris_le': prisLe.toIso8601String(),
-        'etat': etat.name,
-        'tentatives': tentatives,
-        if (motifDuRefus != null) 'motif_du_refus': motifDuRefus,
-      };
+    'identifiant': identifiant,
+    'dossier': dossier,
+    'chemin_du_fichier': cheminDuFichier,
+    'pris_le': prisLe.toIso8601String(),
+    'etat': etat.name,
+    'tentatives': tentatives,
+    if (motifDuRefus != null) 'motif_du_refus': motifDuRefus,
+  };
 
   static Depot depuisJson(Map<String, dynamic> json) => Depot(
-        identifiant: json['identifiant'] as String,
-        dossier: json['dossier'] as String,
-        cheminDuFichier: json['chemin_du_fichier'] as String,
-        prisLe: DateTime.parse(json['pris_le'] as String),
-        etat: EtatDuDepot.values.byName(json['etat'] as String),
-        tentatives: json['tentatives'] as int? ?? 0,
-        motifDuRefus: json['motif_du_refus'] as String?,
-      );
+    identifiant: json['identifiant'] as String,
+    dossier: json['dossier'] as String,
+    cheminDuFichier: json['chemin_du_fichier'] as String,
+    prisLe: DateTime.parse(json['pris_le'] as String),
+    etat: EtatDuDepot.values.byName(json['etat'] as String),
+    tentatives: json['tentatives'] as int? ?? 0,
+    motifDuRefus: json['motif_du_refus'] as String?,
+  );
 }

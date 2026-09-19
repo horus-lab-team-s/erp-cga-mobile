@@ -1,0 +1,69 @@
+# Ce qui doit être vrai avant qu'un changement n'entre dans `main`.
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# CE QUE CETTE CHAÎNE PROTÈGE
+#
+# La règle de renvoi de la file hors ligne est ce qu'on ne peut pas vérifier à
+# la main : il faudrait couper le réseau au bon moment, vingt fois de suite. Le
+# domaine a donc été écrit sans rien qui demande un appareil, et c'est ce qui
+# permet à ces cas de s'exécuter ici, en une seconde, à chaque proposition.
+#
+# ⚠️ La version de Flutter est FIXÉE. Un canal suivi en continu fait entrer une
+# mise à jour du cadre dans une proposition qui ne parle pas d'elle, et l'échec
+# qui en résulte se lit comme une faute de l'auteur.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Vérification
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  application:
+    name: Application — analyse, tests et paquet Android
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.41.4"
+          channel: stable
+          cache: true
+
+      - name: Installer
+        run: flutter pub get
+
+      - name: Mise en forme
+        # `--set-exit-if-changed` : la chaîne échoue au lieu de reformater en
+        # silence. Un formatage appliqué par la chaîne produit un écart entre ce
+        # qui est relu et ce qui est publié.
+        run: dart format --set-exit-if-changed .
+
+      - name: Analyse
+        # ⚠️ `--fatal-infos` : dans un projet Flutter, la plupart des remarques
+        # utiles — un `BuildContext` employé après un `await`, un widget qui
+        # pourrait être `const` — arrivent au niveau « info ». Les laisser
+        # passer revient à ne pas analyser.
+        run: flutter analyze --fatal-infos
+
+      - name: Tests
+        run: flutter test
+
+      - name: Paquet Android
+        # Construit, jamais publié. Ce qui est vérifié, c'est que le projet
+        # compile vraiment : `analyze` et `test` n'assemblent ni Gradle, ni les
+        # ressources, ni le manifeste Android.
+        run: flutter build apk --debug

@@ -12,12 +12,12 @@ import 'package:flutter_test/flutter_test.dart';
 /// ─────────────────────────────────────────────────────────────────────────────
 
 Depot _depot(String id, {int jour = 1, int tentatives = 0}) => Depot(
-      identifiant: id,
-      dossier: 'D-001',
-      cheminDuFichier: '/tmp/$id.jpg',
-      prisLe: DateTime(2026, 9, jour),
-      tentatives: tentatives,
-    );
+  identifiant: id,
+  dossier: 'D-001',
+  cheminDuFichier: '/tmp/$id.jpg',
+  prisLe: DateTime(2026, 9, jour),
+  tentatives: tentatives,
+);
 
 void main() {
   group("L'ordre de la file", () {
@@ -31,7 +31,8 @@ void main() {
       expect(
         attente.map((d) => d.identifiant),
         ['A', 'B'],
-        reason: "la facture du 3 doit arriver avant celle du 17, sinon le "
+        reason:
+            "la facture du 3 doit arriver avant celle du 17, sinon le "
             "collaborateur qui suit le dossier voit une chronologie fausse",
       );
     });
@@ -69,7 +70,8 @@ void main() {
       expect(
         (await file.enAttente()).single.tentatives,
         1,
-        reason: 'la tentative doit être comptée, sinon le garde-fou des six '
+        reason:
+            'la tentative doit être comptée, sinon le garde-fou des six '
             'essais ne se déclenche jamais',
       );
     });
@@ -90,7 +92,8 @@ void main() {
       expect(
         tentes,
         ['A'],
-        reason: 'si le réseau manque pour le premier, il manque pour les '
+        reason:
+            'si le réseau manque pour le premier, il manque pour les '
             "suivants : insister perdrait l'ordre de remise",
       );
     });
@@ -114,7 +117,9 @@ void main() {
   group('Le garde-fou des tentatives', () {
     test('cesse d\'essayer au-delà de six', () async {
       final file = FileDAttente(MagasinEnMemoire());
-      await file.ajouter(_depot('A', tentatives: FileDAttente.tentativesMaximales));
+      await file.ajouter(
+        _depot('A', tentatives: FileDAttente.tentativesMaximales),
+      );
       var tente = false;
 
       await file.vider((_) async {
@@ -125,7 +130,8 @@ void main() {
       expect(
         tente,
         isFalse,
-        reason: "une file qui réessaie sans fin hors réseau vide la batterie en "
+        reason:
+            "une file qui réessaie sans fin hors réseau vide la batterie en "
             "une nuit, sans que l'adhérent comprenne pourquoi",
       );
     });
@@ -142,7 +148,8 @@ void main() {
       expect(
         apres.etat,
         avant.etat,
-        reason: "c'est ce qui rendra la remise idempotente quand le magasin "
+        reason:
+            "c'est ce qui rendra la remise idempotente quand le magasin "
             'durable écrira la file sur le disque',
       );
     });

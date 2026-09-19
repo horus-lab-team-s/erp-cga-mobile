@@ -56,10 +56,9 @@ class ClientApi {
   Future<bool> ouvrirUneSession(String courriel, String motDePasse) async {
     final requete = await _client.postUrl(base.resolve('/transverse/session'));
     requete.headers.contentType = ContentType.json;
-    requete.write(jsonEncode({
-      'courriel': courriel,
-      'mot_de_passe': motDePasse,
-    }));
+    requete.write(
+      jsonEncode({'courriel': courriel, 'mot_de_passe': motDePasse}),
+    );
     final reponse = await requete.close();
     await reponse.drain<void>();
     if (reponse.statusCode != HttpStatus.ok) {
@@ -80,8 +79,9 @@ class ClientApi {
   /// l'application dans un état qu'aucun écran ne sait montrer.
   Future<void> fermerLaSession() async {
     try {
-      final requete =
-          await _client.deleteUrl(base.resolve('/transverse/session'));
+      final requete = await _client.deleteUrl(
+        base.resolve('/transverse/session'),
+      );
       _poserLaSession(requete);
       final reponse = await requete.close();
       await reponse.drain<void>();
