@@ -6,7 +6,6 @@ import '../domaine/depot.dart';
 import '../ports/service_de_session.dart';
 import '../domaine/file_d_attente.dart';
 import '../domaine/prise_de_vue.dart';
-import 'historique.dart';
 
 /// L'écran d'après la connexion : l'état de la file, et rien d'autre pour
 /// l'instant.
@@ -24,6 +23,7 @@ class EcranAccueil extends StatefulWidget {
     required this.priseDeVue,
     required this.remettre,
     required this.quandDeconnecte,
+    required this.dossiers,
   });
 
   final ServiceDeSession session;
@@ -37,6 +37,13 @@ class EcranAccueil extends StatefulWidget {
 
   final VoidCallback quandDeconnecte;
 
+  /// Les dossiers du compte, lus UNE FOIS par la coquille.
+  ///
+  /// ⚠️ Cet écran les relisait pour son compte, et les deux autres aussi : trois
+  /// appels à `/transverse/moi` à chaque ouverture, sur un réseau qu'on sait
+  /// mauvais, et trois réponses possiblement différentes si l'une échoue.
+  final List<String> dossiers;
+
   @override
   State<EcranAccueil> createState() => _EtatDeLAccueil();
 }
@@ -45,27 +52,11 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
   List<Depot> _enAttente = const [];
   List<Depot> _refuses = const [];
   bool _envoiEnCours = false;
-  List<String> _dossiers = const [];
 
   @override
   void initState() {
     super.initState();
     _relire();
-    _lireLesDossiers();
-  }
-
-  Future<void> _lireLesDossiers() async {
-    List<String> dossiers;
-    try {
-      dossiers = await widget.session.mesDossiers();
-    } on Object {
-      // Sans réseau au lancement, on ne connaît pas encore les dossiers. Le
-      // bouton reste inactif, et un message le dit plutôt que de laisser
-      // l'adhérent appuyer sur un déclencheur qui ne répond pas.
-      dossiers = const [];
-    }
-    if (!mounted) return;
-    setState(() => _dossiers = dossiers);
   }
 
   Future<void> _relire() async {
@@ -106,10 +97,10 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
   /// tous les adhérents. Une question dont la réponse est forcée est une étape
   /// de plus entre la facture en main et la photo prise.
   Future<String?> _quelDossier() async {
-    if (_dossiers.length == 1) {
-      return _dossiers.single;
+    if (widget.dossiers.length == 1) {
+      return widget.dossiers.single;
     }
-    if (_dossiers.isEmpty) {
+    if (widget.dossiers.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -124,7 +115,7 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
       builder: (contexte) => SimpleDialog(
         title: const Text('Pour quelle entreprise ?'),
         children: [
-          for (final d in _dossiers)
+          for (final d in widget.dossiers)
             SimpleDialogOption(
               onPressed: () => Navigator.pop(contexte, d),
               child: Text(d),
@@ -172,7 +163,7 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
   @override
   Widget build(BuildContext context) {
     final couleurs = Theme.of(context).colorScheme;
-    final prete = _dossiers.isNotEmpty;
+    final prete = widget.dossiers.isNotEmpty;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Mes justificatifs'),
@@ -192,35 +183,6 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
                 : const Icon(Icons.cloud_upload_outlined),
             tooltip: 'Envoyer maintenant',
           ),
-          // ⚠️ L'HISTORIQUE EST À CÔTÉ DE L'ENVOI, ET NON DANS UN MENU.
-          //
-          // « Est-ce que je l'ai envoyée ? » est la deuxième question de
-          // l'adhérent, juste après « est-ce que ça part ? ». L'enterrer sous
-          // trois points la rendrait introuvable : sur un écran qui ne compte
-          // que quatre gestes, un menu ne range rien, il cache.
-          IconButton(
-            key: const Key('bouton-historique'),
-            onPressed: prete
-                ? () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => EcranHistorique(
-                        session: widget.session,
-                        dossiers: _dossiers,
-                        // ⚠️ La déconnexion passe par le MÊME chemin que partout
-                        // ailleurs. Une session expirée découverte depuis
-                        // l'historique doit ramener à la connexion comme une
-                        // session expirée découverte pendant un envoi : deux
-                        // sorties différentes pour la même cause laisseraient
-                        // l'application dans deux états qu'aucun écran ne sait
-                        // montrer.
-                        quandSessionExpire: widget.quandDeconnecte,
-                      ),
-                    ),
-                  )
-                : null,
-            icon: const Icon(Icons.history),
-            tooltip: 'Pièces déjà remises',
-          ),
           IconButton(
             key: const Key('bouton-sortir'),
             onPressed: _sortir,
@@ -238,7 +200,7 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
               enAttente: _enAttente.length,
               aReprendre: _refuses.length,
               dossier: prete
-                  ? (_dossiers.length == 1 ? _dossiers.single : null)
+                  ? (widget.dossiers.length == 1 ? widget.dossiers.single : null)
                   : null,
               sansDossier: !prete,
             ),

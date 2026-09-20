@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:cga_mobile/adaptateurs/magasin_memoire.dart';
 import 'package:cga_mobile/domaine/depot.dart';
 import 'package:cga_mobile/domaine/file_d_attente.dart';
+import 'package:cga_mobile/domaine/echeance.dart';
 import 'package:cga_mobile/domaine/piece_remise.dart';
 import 'package:cga_mobile/domaine/prise_de_vue.dart';
 import 'package:cga_mobile/ecrans/accueil.dart';
@@ -43,6 +44,11 @@ class SessionFeinte implements ServiceDeSession {
   /// propres cas, dans `ecran_historique_test.dart`.
   @override
   Future<Historique> mesPieces(String dossier) async => const Historique();
+
+  /// ⚠️ La doublure rend un échéancier VIDE : ces cas-ci ne portent pas sur les
+  /// échéances, qui ont leur propre fichier.
+  @override
+  Future<Echeancier> mesEcheances(String dossier) async => const Echeancier();
 }
 
 class _Panne implements Exception {
@@ -126,6 +132,7 @@ void main() {
     SessionFeinte? session,
     Future<Reponse> Function(Depot)? remettre,
     VoidCallback? quandDeconnecte,
+    List<String> dossiers = const ['M081234567890P'],
   }) async {
     await testeur.pumpWidget(
       MaterialApp(
@@ -136,6 +143,9 @@ void main() {
           priseDeVue: prise,
           remettre: remettre ?? (_) async => Reponse.accepte,
           quandDeconnecte: quandDeconnecte ?? () {},
+          // ⚠️ Les dossiers viennent désormais de la coquille, qui les lit une
+          // fois pour les trois écrans. L'accueil ne les relit plus.
+          dossiers: dossiers,
         ),
       ),
     );
@@ -190,7 +200,7 @@ void main() {
     testWidgets('sans dossier, le verdict le dit et donne la suite', (
       testeur,
     ) async {
-      await poser(testeur, session: SessionFeinte(dossiers: const []));
+      await poser(testeur, dossiers: const []);
 
       expect(find.text('Aucun dossier à votre nom'), findsOneWidget);
       expect(
@@ -257,7 +267,7 @@ void main() {
     ) async {
       // ⚠️ Le bouton resterait actif, l'adhérent prendrait sa photo, et le
       // refus n'arriverait qu'après — quand la facture est rangée.
-      await poser(testeur, session: SessionFeinte(dossiers: const []));
+      await poser(testeur, dossiers: const []);
 
       final bouton = testeur.widget<FloatingActionButton>(
         find.byKey(const Key('bouton-photographier')),
@@ -269,10 +279,14 @@ void main() {
       expect(find.text('Aucun dossier à votre nom'), findsOneWidget);
     });
 
-    testWidgets("une panne réseau au lancement ne fait pas planter l'écran", (
+    testWidgets("sans dossier connu, l'écran le dit au lieu de se taire", (
       testeur,
     ) async {
-      await poser(testeur, session: SessionFeinte(panne: true));
+      // ⚠️ La panne réseau au lancement a déménagé : ce n'est plus cet écran qui
+      // lit les dossiers, c'est la coquille. Le cas est repris dans
+      // `coquille_test.dart`. Ici on ne vérifie plus que ce que l'écran fait de
+      // la liste qu'on lui donne.
+      await poser(testeur, dossiers: const []);
 
       expect(find.text('Aucun dossier à votre nom'), findsOneWidget);
     });
@@ -358,32 +372,4 @@ void main() {
     });
   });
 
-  group("L'accès aux pièces déjà remises", () {
-    testWidgets("un bouton y mène, et non un menu caché", (testeur) async {
-      // ⚠️ « Est-ce que je l'ai envoyée ? » est la deuxième question de
-      // l'adhérent, juste après « est-ce que ça part ? ». Sur un écran qui ne
-      // compte que quatre gestes, un menu ne range rien : il cache.
-      await poser(testeur);
-      await testeur.pumpAndSettle();
-
-      final bouton = testeur.widget<IconButton>(
-        find.byKey(const Key('bouton-historique')),
-      );
-      expect(bouton.onPressed, isNotNull);
-    });
-
-    testWidgets("il reste inerte tant qu'aucun dossier n'est ouvert", (
-      testeur,
-    ) async {
-      // Sans dossier, il n'y a rien à lire : ouvrir un écran qui ne pourra
-      // qu'échouer vaut moins qu'un bouton qui se tait.
-      await poser(testeur, session: SessionFeinte(dossiers: const []));
-      await testeur.pumpAndSettle();
-
-      final bouton = testeur.widget<IconButton>(
-        find.byKey(const Key('bouton-historique')),
-      );
-      expect(bouton.onPressed, isNull);
-    });
-  });
 }

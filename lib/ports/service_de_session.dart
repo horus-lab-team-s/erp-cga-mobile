@@ -1,3 +1,4 @@
+import '../domaine/echeance.dart';
 import '../domaine/piece_remise.dart';
 
 /// Ce que les écrans attendent du serveur, et rien de plus.
@@ -36,4 +37,12 @@ abstract class ServiceDeSession {
   /// personne ne peut éprouver sans serveur en face — ce que l'en-tête de ce
   /// fichier raconte déjà pour les trois autres.
   Future<Historique> mesPieces(String dossier);
+
+  /// Ce que l'adhérent doit, et quand.
+  ///
+  /// ⚠️ Une obligation par carte, telle que le serveur la rend. Il réduit
+  /// volontairement : sur le dossier d'essai, la liste complète compterait
+  /// soixante-dix lignes. Recomposer ici ce qu'il a réduit là-bas rendrait
+  /// l'écran illisible et ferait diverger les deux surfaces.
+  Future<Echeancier> mesEcheances(String dossier);
 }

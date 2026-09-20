@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:cga_mobile/domaine/echeance.dart';
 import 'package:cga_mobile/domaine/piece_remise.dart';
 import 'package:cga_mobile/ecrans/historique.dart';
 import 'package:cga_mobile/marque.dart';
@@ -51,6 +52,11 @@ class SessionFeinte implements ServiceDeSession {
 
   @override
   Future<List<String>> mesDossiers() async => dossiers;
+
+  /// ⚠️ La doublure rend un échéancier VIDE : ces cas-ci ne portent pas sur les
+  /// échéances, qui ont leur propre fichier.
+  @override
+  Future<Echeancier> mesEcheances(String dossier) async => const Echeancier();
 
   @override
   Future<Historique> mesPieces(String dossier) {
@@ -352,7 +358,7 @@ void main() {
     });
   });
 
-  group("Revenir dans l\'application", () {
+  group("Revenir dans l'application", () {
     testWidgets("redemande au serveur, sans attendre un geste", (
       testeur,
     ) async {

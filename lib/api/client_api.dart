@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../domaine/echeance.dart';
 import '../domaine/file_d_attente.dart';
 import '../domaine/piece_remise.dart';
 import '../ports/service_de_session.dart';
@@ -284,6 +285,56 @@ class ClientApi implements ServiceDeSession {
     } on Object {
       // Pas de réseau, serveur injoignable, délai dépassé, corps illisible.
       return const Historique(serveurJoignable: false);
+    }
+  }
+
+  /// Les échéances du dossier, telles que l'adhérent les lit.
+  ///
+  /// ⚠️ Même traitement des sorts que [mesPieces], et pour une raison plus forte
+  /// encore : ici, une liste vide affichée comme « vous êtes à jour » dirait à un
+  /// adhérent en retard de dix-neuf mois qu'il est tranquille.
+  @override
+  Future<Echeancier> mesEcheances(String dossier) async {
+    try {
+      final requete = await _client.getUrl(
+        base.resolve('/obligations/dossiers/$dossier/mes-echeances'),
+      );
+      _poserLaSession(requete);
+      final reponse = await requete.close();
+      final corps = await reponse.transform(utf8.decoder).join();
+      if (reponse.statusCode == HttpStatus.unauthorized) {
+        return const Echeancier(sessionAExpire: true);
+      }
+      if (reponse.statusCode != HttpStatus.ok) {
+        return const Echeancier(serveurJoignable: false);
+      }
+      final json = jsonDecode(corps);
+      if (json is! Map<String, dynamic>) {
+        return const Echeancier(serveurJoignable: false);
+      }
+      final lignes = json['echeances'];
+      if (lignes is! List) {
+        return const Echeancier(serveurJoignable: false);
+      }
+      final echeances = [
+        for (final ligne in lignes)
+          Echeance.depuisJson(ligne as Map<String, dynamic>),
+      ];
+      // ⚠️ CE QUI DEMANDE UN GESTE EN PREMIER, puis l'ordre des dates.
+      //
+      // Le serveur rend l'échéancier dans son ordre à lui, qui est celui du
+      // calendrier. Sur un dossier en retard de cinq cents jours, cela place
+      // l'action urgente au milieu d'obligations à venir. L'adhérent ouvre
+      // l'application pour savoir quoi faire, pas pour lire un calendrier.
+      echeances.sort((a, b) {
+        final urgence = (b.etat.demandeUnGeste ? 1 : 0)
+            .compareTo(a.etat.demandeUnGeste ? 1 : 0);
+        if (urgence != 0) return urgence;
+        return a.echeanceLe.compareTo(b.echeanceLe);
+      });
+      return Echeancier(echeances: echeances);
+    } on Object {
+      return const Echeancier(serveurJoignable: false);
     }
   }
 

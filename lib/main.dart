@@ -11,7 +11,7 @@ import 'api/remise.dart';
 import 'domaine/file_d_attente.dart';
 import 'domaine/prise_de_vue.dart';
 import 'marque.dart';
-import 'ecrans/accueil.dart';
+import 'ecrans/coquille.dart';
 import 'ecrans/connexion.dart';
 import 'ecrans/ouverture.dart';
 
@@ -107,7 +107,10 @@ class _EtatDeLApplication extends State<ApplicationCga> {
         // démarrage indigo d'Android et le bandeau indigo de la connexion, une
         // page blanche faisait un éclair à chaque ouverture.
         (null, _) => const EcranDOuverture(),
-        (final FileDAttente file, true) => EcranAccueil(
+        // ⚠️ La coquille, et non l'accueil seul : c'est elle qui porte la
+        // barre de navigation et lit les dossiers une fois pour les trois
+        // écrans.
+        (final FileDAttente file, true) => Coquille(
           session: _client,
           file: file,
           priseDeVue: _priseDeVue!,

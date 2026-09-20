@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cga_mobile/ecrans/connexion.dart';
 import 'package:cga_mobile/marque.dart';
+import 'package:cga_mobile/domaine/echeance.dart';
 import 'package:cga_mobile/domaine/piece_remise.dart';
 import 'package:cga_mobile/ports/service_de_session.dart';
 import 'package:flutter/material.dart';
@@ -44,6 +45,11 @@ class SessionFeinte implements ServiceDeSession {
 
   @override
   Future<Historique> mesPieces(String dossier) async => const Historique();
+
+  /// ⚠️ La doublure rend un échéancier VIDE : ces cas-ci ne portent pas sur les
+  /// échéances, qui ont leur propre fichier.
+  @override
+  Future<Echeancier> mesEcheances(String dossier) async => const Echeancier();
 }
 
 class SocketExceptionFeinte implements Exception {
@@ -230,4 +236,9 @@ class _SessionQuiAttend implements ServiceDeSession {
 
   @override
   Future<Historique> mesPieces(String dossier) async => const Historique();
+
+  /// ⚠️ La doublure rend un échéancier VIDE : ces cas-ci ne portent pas sur les
+  /// échéances, qui ont leur propre fichier.
+  @override
+  Future<Echeancier> mesEcheances(String dossier) async => const Echeancier();
 }
