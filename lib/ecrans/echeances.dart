@@ -104,7 +104,22 @@ class _EtatDesEcheances extends State<EcranEcheances>
     // quittance est CHEZ LE CABINET, sans son rattachement. Le taire ferait
     // photographier une seconde fois.
     final (String message, bool grave) = switch (sort) {
-      Preuve.recue => ('Preuve envoyée. Le cabinet la vérifie.', false),
+      // ⚠️ LA PÉRIODE EST NOMMÉE, ET CE N'EST PAS UN ORNEMENT.
+      //
+      // Constaté contre le vrai serveur : une fois la preuve reçue, la carte
+      // ne disparaît pas et ne passe pas au vert. Elle GLISSE à la période
+      // suivante — de janvier à février — et reste « en retard », parce qu'il
+      // reste dix-huit mois derrière. Seul le compte du bandeau baisse d'une
+      // unité.
+      //
+      // Sans nommer la période acquittée, l'adhérent voit un message de succès
+      // suivi d'une carte qui dit toujours « en retard de 554 jours », et
+      // conclut que rien n'a été pris. Il recommence.
+      Preuve.recue => (
+        'Preuve envoyée pour ${e.periode}. Le cabinet la vérifie ; '
+        'la carte passe à la période suivante.',
+        false,
+      ),
       Preuve.refusee => (
         'Le cabinet ne peut pas rattacher cette preuve : l\'obligation est '
         'peut-être déjà déposée, ou la preuve déjà envoyée.',

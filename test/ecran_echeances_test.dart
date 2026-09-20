@@ -354,6 +354,13 @@ void main() {
 
       expect(appareil.prises, 1);
       expect(session.preuves, const ['CNPS']);
+      // ⚠️ La période doit être nommée : la carte glisse au mois suivant et
+      // reste « en retard ». Sans ce repère, l'adhérent croit que rien n'a été
+      // pris et recommence.
+      expect(
+        find.textContaining('Preuve envoyée pour janvier 2025'),
+        findsOneWidget,
+      );
       expect(find.textContaining('Le cabinet la vérifie'), findsOneWidget);
     });
 
