@@ -5,7 +5,6 @@ import 'package:cga_mobile/domaine/preuve.dart';
 import 'package:cga_mobile/ecrans/mon_entreprise.dart';
 import 'package:cga_mobile/marque.dart';
 import 'package:cga_mobile/ports/service_de_session.dart';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
