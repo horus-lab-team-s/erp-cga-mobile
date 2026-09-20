@@ -153,6 +153,14 @@ void main() {
 
       expect(find.text('SARL BATIMENT PLUS'), findsOneWidget);
       expect(find.text('Régime du réel'), findsOneWidget);
+      // ⚠️ CONSTATÉ SUR LE TECNO : la fiche affichait « Depuis 2022-06-01 »,
+      // une date de base de données montrée telle quelle à un commerçant, alors
+      // que l'écran des accusés disait « déposé le 15 mars 2024 ». Le même
+      // produit parlait deux langues selon l'écran.
+      // Deux occurrences : le régime et l'adhésion datent du même jour dans ce
+      // jeu d'essai, et l'écran doit mettre les deux en français.
+      expect(find.text('1er juin 2022'), findsNWidgets(2));
+      expect(find.text('2022-06-01'), findsNothing);
       expect(
         find.textContaining('Vous facturez la TVA'),
         findsOneWidget,

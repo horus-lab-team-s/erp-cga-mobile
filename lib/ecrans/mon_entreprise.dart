@@ -255,7 +255,7 @@ class _Contenu extends StatelessWidget {
           children: [
             _Ligne(intitule: 'Régime', valeur: e.regimeTitre, fort: true),
             if (e.regimeDepuis != null)
-              _Ligne(intitule: 'Depuis', valeur: e.regimeDepuis!),
+              _Ligne(intitule: 'Depuis', valeur: _enFrancais(e.regimeDepuis!)),
             _Ligne(
               intitule: 'TVA',
               valeur: e.assujettieTva
@@ -291,7 +291,10 @@ class _Contenu extends StatelessWidget {
             if (e.adhesionNumero != null)
               _Ligne(intitule: 'Adhésion', valeur: e.adhesionNumero!),
             if (e.adherenteDepuis != null)
-              _Ligne(intitule: 'Adhérent depuis', valeur: e.adherenteDepuis!),
+              _Ligne(
+                intitule: 'Adhérent depuis',
+                valeur: _enFrancais(e.adherenteDepuis!),
+              ),
             for (final d in e.dirigeants)
               _Ligne(intitule: d.qualite, valeur: d.nom),
           ],
@@ -369,6 +372,28 @@ class _Contenu extends StatelessWidget {
       ],
     );
   }
+}
+
+const _moisEnFrancais = [
+  'janvier', 'février', 'mars', 'avril', 'mai', 'juin',
+  'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre',
+];
+
+/// « 2023-01-01 » devient « 1er janvier 2023 ».
+///
+/// ⚠️ CONSTATÉ SUR LE TECNO : la fiche affichait « Depuis 2023-01-01 », une date
+/// de base de données montrée telle quelle à un commerçant. Deux écrans plus
+/// loin, les accusés de dépôt disaient « déposé le 15 mars 2024 » : le même
+/// produit parlait deux langues selon l'écran.
+///
+/// ⚠️ La chaîne est rendue TELLE QUELLE si elle ne se lit pas. Un serveur qui
+/// changerait de format ne doit pas faire disparaître la date : mieux vaut une
+/// date mal mise en forme qu'un champ vide.
+String _enFrancais(String iso) {
+  final d = DateTime.tryParse(iso);
+  if (d == null) return iso;
+  final jour = d.day == 1 ? '1er' : '${d.day}';
+  return '$jour ${_moisEnFrancais[d.month - 1]} ${d.year}';
 }
 
 class _Titre extends StatelessWidget {
