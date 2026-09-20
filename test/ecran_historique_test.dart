@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cga_mobile/domaine/echeance.dart';
+import 'package:cga_mobile/domaine/preuve.dart';
 import 'package:cga_mobile/domaine/piece_remise.dart';
 import 'package:cga_mobile/ecrans/historique.dart';
 import 'package:cga_mobile/marque.dart';
@@ -63,6 +64,13 @@ class SessionFeinte implements ServiceDeSession {
     demandes.add(dossier);
     return attente?.future ?? Future.value(historique);
   }
+
+  @override
+  Future<Preuve> envoyerLaPreuve({
+    required String dossier,
+    required Echeance echeance,
+    required String cheminDeLaPhoto,
+  }) async => Preuve.recue;
 }
 
 PieceRemise piece({

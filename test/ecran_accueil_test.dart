@@ -4,6 +4,7 @@ import 'package:cga_mobile/adaptateurs/magasin_memoire.dart';
 import 'package:cga_mobile/domaine/depot.dart';
 import 'package:cga_mobile/domaine/file_d_attente.dart';
 import 'package:cga_mobile/domaine/echeance.dart';
+import 'package:cga_mobile/domaine/preuve.dart';
 import 'package:cga_mobile/domaine/piece_remise.dart';
 import 'package:cga_mobile/domaine/prise_de_vue.dart';
 import 'package:cga_mobile/ecrans/accueil.dart';
@@ -49,6 +50,13 @@ class SessionFeinte implements ServiceDeSession {
   /// échéances, qui ont leur propre fichier.
   @override
   Future<Echeancier> mesEcheances(String dossier) async => const Echeancier();
+
+  @override
+  Future<Preuve> envoyerLaPreuve({
+    required String dossier,
+    required Echeance echeance,
+    required String cheminDeLaPhoto,
+  }) async => Preuve.recue;
 }
 
 class _Panne implements Exception {

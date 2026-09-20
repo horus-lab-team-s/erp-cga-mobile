@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../domaine/echeance.dart';
+import '../domaine/prise_de_vue.dart';
+import '../domaine/preuve.dart';
 import '../ports/service_de_session.dart';
 
 /// Ce que l'adhérent doit, et quand.
@@ -22,11 +24,17 @@ class EcranEcheances extends StatefulWidget {
     required this.session,
     required this.dossiers,
     required this.quandSessionExpire,
+    required this.priseDeVue,
   });
 
   final ServiceDeSession session;
   final List<String> dossiers;
   final VoidCallback quandSessionExpire;
+
+  /// ⚠️ La prise de vue sert ici à photographier une QUITTANCE, jamais un
+  /// justificatif ordinaire : on passe donc par `copieDurable`, qui ne met rien
+  /// en file. Voir son en-tête : la file la déposerait une seconde fois.
+  final PriseDeVue priseDeVue;
 
   @override
   State<EcranEcheances> createState() => _EtatDesEcheances();
@@ -72,6 +80,54 @@ class _EtatDesEcheances extends State<EcranEcheances>
       _lectureEnCours = false;
     });
     if (lu.sessionAExpire) widget.quandSessionExpire();
+  }
+
+  /// L'obligation dont la preuve est en cours d'envoi, s'il y en a une.
+  ///
+  /// ⚠️ Une seule à la fois : deux envois simultanés déposeraient deux
+  /// quittances que le cabinet devrait démêler.
+  String? _envoiEnCours;
+
+  Future<void> _jaiPaye(Echeance e) async {
+    final chemin = await widget.priseDeVue.copieDurable();
+    if (chemin == null || !mounted) return;
+    setState(() => _envoiEnCours = e.codeObligation);
+    final sort = await widget.session.envoyerLaPreuve(
+      dossier: _dossier,
+      echeance: e,
+      cheminDeLaPhoto: chemin,
+    );
+    if (!mounted) return;
+    setState(() => _envoiEnCours = null);
+
+    // ⚠️ Chaque sort a sa phrase, et « indisponible » en a une qui compte : la
+    // quittance est CHEZ LE CABINET, sans son rattachement. Le taire ferait
+    // photographier une seconde fois.
+    final (String message, bool grave) = switch (sort) {
+      Preuve.recue => ('Preuve envoyée. Le cabinet la vérifie.', false),
+      Preuve.refusee => (
+        'Le cabinet ne peut pas rattacher cette preuve : l\'obligation est '
+        'peut-être déjà déposée, ou la preuve déjà envoyée.',
+        true,
+      ),
+      Preuve.sessionExpiree => ('Session expirée. Reconnectez-vous.', true),
+      Preuve.indisponible => (
+        'Votre quittance est arrivée au cabinet, mais nous n\'avons pas pu dire '
+        'ce qu\'elle règle. Inutile de la reprendre en photo : appelez votre '
+        'chargé de clientèle.',
+        true,
+      ),
+    };
+    final couleurs = Theme.of(context).colorScheme;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: grave ? couleurs.error : null,
+        duration: Duration(seconds: grave ? 8 : 4),
+      ),
+    );
+    if (sort == Preuve.sessionExpiree) widget.quandSessionExpire();
+    if (sort == Preuve.recue) await _relire();
   }
 
   @override
@@ -133,7 +189,11 @@ class _EtatDesEcheances extends State<EcranEcheances>
                 'étonne.',
             icone: Icons.event_available_outlined,
           ),
-          (_, final Echeancier x) => _Liste(echeancier: x),
+          (_, final Echeancier x) => _Liste(
+            echeancier: x,
+            jaiPaye: _jaiPaye,
+            envoiEnCours: _envoiEnCours,
+          ),
         },
       ),
     );
@@ -141,9 +201,15 @@ class _EtatDesEcheances extends State<EcranEcheances>
 }
 
 class _Liste extends StatelessWidget {
-  const _Liste({required this.echeancier});
+  const _Liste({
+    required this.echeancier,
+    required this.jaiPaye,
+    required this.envoiEnCours,
+  });
 
   final Echeancier echeancier;
+  final Future<void> Function(Echeance) jaiPaye;
+  final String? envoiEnCours;
 
   @override
   Widget build(BuildContext context) => ListView(
@@ -154,7 +220,11 @@ class _Liste extends StatelessWidget {
       for (final e in echeancier.echeances)
         Padding(
           padding: const EdgeInsets.only(bottom: 12),
-          child: _Carte(echeance: e),
+          child: _Carte(
+            echeance: e,
+            jaiPaye: jaiPaye,
+            enCours: envoiEnCours == e.codeObligation,
+          ),
         ),
     ],
   );
@@ -231,9 +301,15 @@ class _Verdict extends StatelessWidget {
 
 /// Une obligation, avec ce qu'elle est et ce qu'un retard coûte.
 class _Carte extends StatefulWidget {
-  const _Carte({required this.echeance});
+  const _Carte({
+    required this.echeance,
+    required this.jaiPaye,
+    required this.enCours,
+  });
 
   final Echeance echeance;
+  final Future<void> Function(Echeance) jaiPaye;
+  final bool enCours;
 
   @override
   State<_Carte> createState() => _EtatDeLaCarte();
@@ -332,6 +408,38 @@ class _EtatDeLaCarte extends State<_Carte> {
               ],
             ),
           ),
+          // ⚠️ LE GESTE N'EST OFFERT QUE SUR CE QUI EST EN RETARD.
+          //
+          // Sur une échéance à venir il n'y a rien à prouver, et sur une preuve
+          // déjà envoyée le cabinet vérifie : reproposer le geste ferait
+          // déposer une seconde quittance que quelqu'un devrait démêler.
+          //
+          // ⚠️ Le libellé dit « j'ai déjà payé », jamais « payer ». L'adhérent
+          // a réglé ailleurs — guichet, Mobile Money, virement — et il en
+          // apporte la preuve. L'application ne sait pas encaisser, et le
+          // serveur non plus pour un adhérent.
+          if (alerte)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+              child: FilledButton.tonalIcon(
+                key: Key('jai-paye-${e.codeObligation}'),
+                onPressed: widget.enCours
+                    ? null
+                    : () => widget.jaiPaye(e),
+                icon: widget.enCours
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2.2),
+                      )
+                    : const Icon(Icons.photo_camera_outlined, size: 18),
+                label: Text(
+                  widget.enCours
+                      ? 'Envoi en cours…'
+                      : 'J\'ai déjà payé — envoyer la quittance',
+                ),
+              ),
+            ),
           if (e.deQuoiSAgitIl != null || e.enCasDeRetard != null)
             // ⚠️ L'explication est REPLIÉE par défaut. Dépliée, cinq cartes
             // font un mur de texte que personne ne lit ; absente, l'adhérent

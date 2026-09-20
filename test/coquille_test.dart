@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:cga_mobile/adaptateurs/magasin_memoire.dart';
 import 'package:cga_mobile/domaine/echeance.dart';
+import 'package:cga_mobile/domaine/preuve.dart';
 import 'package:cga_mobile/domaine/file_d_attente.dart';
 import 'package:cga_mobile/domaine/piece_remise.dart';
 import 'package:cga_mobile/domaine/prise_de_vue.dart';
@@ -64,6 +65,13 @@ class SessionFeinte implements ServiceDeSession {
     demandesDEcheances.add(dossier);
     return const Echeancier();
   }
+
+  @override
+  Future<Preuve> envoyerLaPreuve({
+    required String dossier,
+    required Echeance echeance,
+    required String cheminDeLaPhoto,
+  }) async => Preuve.recue;
 }
 
 class AppareilFeint implements AppareilPhoto {

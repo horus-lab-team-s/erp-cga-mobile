@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cga_mobile/ecrans/connexion.dart';
 import 'package:cga_mobile/marque.dart';
 import 'package:cga_mobile/domaine/echeance.dart';
+import 'package:cga_mobile/domaine/preuve.dart';
 import 'package:cga_mobile/domaine/piece_remise.dart';
 import 'package:cga_mobile/ports/service_de_session.dart';
 import 'package:flutter/material.dart';
@@ -50,6 +51,13 @@ class SessionFeinte implements ServiceDeSession {
   /// échéances, qui ont leur propre fichier.
   @override
   Future<Echeancier> mesEcheances(String dossier) async => const Echeancier();
+
+  @override
+  Future<Preuve> envoyerLaPreuve({
+    required String dossier,
+    required Echeance echeance,
+    required String cheminDeLaPhoto,
+  }) async => Preuve.recue;
 }
 
 class SocketExceptionFeinte implements Exception {
@@ -241,4 +249,11 @@ class _SessionQuiAttend implements ServiceDeSession {
   /// échéances, qui ont leur propre fichier.
   @override
   Future<Echeancier> mesEcheances(String dossier) async => const Echeancier();
+
+  @override
+  Future<Preuve> envoyerLaPreuve({
+    required String dossier,
+    required Echeance echeance,
+    required String cheminDeLaPhoto,
+  }) async => Preuve.recue;
 }

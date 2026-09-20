@@ -1,4 +1,5 @@
 import '../domaine/echeance.dart';
+import '../domaine/preuve.dart';
 import '../domaine/piece_remise.dart';
 
 /// Ce que les écrans attendent du serveur, et rien de plus.
@@ -45,4 +46,16 @@ abstract class ServiceDeSession {
   /// soixante-dix lignes. Recomposer ici ce qu'il a réduit là-bas rendrait
   /// l'écran illisible et ferait diverger les deux surfaces.
   Future<Echeancier> mesEcheances(String dossier);
+
+  /// « J'ai déjà payé » : dépose la quittance, puis dit ce qu'elle acquitte.
+  ///
+  /// ⚠️ Deux actes en un seul geste, et l'ordre compte. La quittance est
+  /// d'abord déposée comme une pièce ordinaire ; c'est seulement ensuite qu'on
+  /// la rattache à l'obligation. L'inverse serait impossible : on ne peut pas
+  /// désigner une pièce qui n'existe pas encore.
+  Future<Preuve> envoyerLaPreuve({
+    required String dossier,
+    required Echeance echeance,
+    required String cheminDeLaPhoto,
+  });
 }

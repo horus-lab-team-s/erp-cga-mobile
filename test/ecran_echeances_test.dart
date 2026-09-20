@@ -1,4 +1,11 @@
+import 'dart:io';
+
+import 'package:cga_mobile/adaptateurs/magasin_memoire.dart';
 import 'package:cga_mobile/domaine/echeance.dart';
+import 'package:cga_mobile/domaine/file_d_attente.dart';
+import 'package:cga_mobile/domaine/prise_de_vue.dart';
+import 'package:cga_mobile/ports/appareil_photo.dart';
+import 'package:cga_mobile/domaine/preuve.dart';
 import 'package:cga_mobile/domaine/piece_remise.dart';
 import 'package:cga_mobile/ecrans/echeances.dart';
 import 'package:cga_mobile/marque.dart';
@@ -44,6 +51,22 @@ class SessionFeinte implements ServiceDeSession {
     demandes.add(dossier);
     return echeancier;
   }
+
+  /// Les preuves envoyées, avec l'obligation qu'elles acquittent.
+  final List<String> preuves = [];
+
+  /// Ce que le serveur répond à l'envoi d'une preuve.
+  Preuve sortDeLaPreuve = Preuve.recue;
+
+  @override
+  Future<Preuve> envoyerLaPreuve({
+    required String dossier,
+    required Echeance echeance,
+    required String cheminDeLaPhoto,
+  }) async {
+    preuves.add(echeance.codeObligation);
+    return sortDeLaPreuve;
+  }
 }
 
 Echeance echeance({
@@ -70,7 +93,43 @@ Echeance echeance({
   'en_cas_de_retard': retard,
 });
 
+/// Un appareil qui rend toujours une photo, ou jamais si on le lui dit.
+class AppareilFeint implements AppareilPhoto {
+  AppareilFeint(this.cache, {this.renonce = false});
+
+  final Directory cache;
+  final bool renonce;
+  int prises = 0;
+
+  @override
+  Future<String?> photographier() async {
+    if (renonce) return null;
+    prises++;
+    final f = File('${cache.path}/q$prises.jpg');
+    await f.writeAsBytes([0xFF, 0xD8, prises, 0xFF, 0xD9]);
+    return f.path;
+  }
+}
+
 void main() {
+  late Directory racine;
+  late PriseDeVue prise;
+  late AppareilFeint appareil;
+
+  setUp(() async {
+    racine = await Directory.systemTemp.createTemp('echeances');
+    appareil = AppareilFeint(racine);
+    prise = PriseDeVue(
+      appareil: appareil,
+      file: FileDAttente(MagasinEnMemoire()),
+      photos: Directory('${racine.path}/photos'),
+    );
+  });
+
+  tearDown(() async {
+    if (await racine.exists()) await racine.delete(recursive: true);
+  });
+
   Future<SessionFeinte> poser(
     WidgetTester testeur, {
     Echeancier echeancier = const Echeancier(),
@@ -84,6 +143,7 @@ void main() {
           session: s,
           dossiers: const ['M081234567890P'],
           quandSessionExpire: quandSessionExpire ?? () {},
+          priseDeVue: prise,
         ),
       ),
     );
@@ -231,6 +291,120 @@ void main() {
 
     expect(find.text('Aucune échéance'), findsOneWidget);
     expect(find.text('Pas de réseau'), findsNothing);
+  });
+
+  group("« J'ai déjà payé »", () {
+    testWidgets('n\'est proposé que sur ce qui est en retard', (testeur) async {
+      // ⚠️ Sur une échéance à venir il n'y a rien à prouver, et sur une preuve
+      // déjà envoyée le cabinet vérifie : reproposer le geste ferait déposer
+      // une seconde quittance que quelqu'un devrait démêler.
+      await poser(
+        testeur,
+        echeancier: Echeancier(
+          echeances: [
+            echeance(code: 'CNPS'),
+            echeance(code: 'TVA', etat: 'A_VENIR', jours: 12),
+            echeance(code: 'PATENTE', etat: 'PREUVE_ENVOYEE', jours: 3),
+            echeance(code: 'DSF', etat: 'DEPOSEE', jours: 0),
+          ],
+        ),
+      );
+      await testeur.pumpAndSettle();
+
+      expect(find.byKey(const Key('jai-paye-CNPS')), findsOneWidget);
+      expect(find.byKey(const Key('jai-paye-TVA')), findsNothing);
+      expect(find.byKey(const Key('jai-paye-PATENTE')), findsNothing);
+      expect(find.byKey(const Key('jai-paye-DSF')), findsNothing);
+    });
+
+    testWidgets('dit « j\'ai déjà payé », et jamais « payer »', (
+      testeur,
+    ) async {
+      // ⚠️ L'adhérent a réglé ailleurs — guichet, Mobile Money, virement — et
+      // il en apporte la preuve. L'application ne sait pas encaisser, et le
+      // serveur non plus pour un adhérent : il n'existe ni permission ni route.
+      await poser(
+        testeur,
+        echeancier: Echeancier(echeances: [echeance()]),
+      );
+      await testeur.pumpAndSettle();
+
+      expect(
+        find.textContaining("J'ai déjà payé"),
+        findsOneWidget,
+      );
+      expect(find.text('Payer'), findsNothing);
+      expect(find.textContaining('Payer maintenant'), findsNothing);
+    });
+
+    testWidgets('photographie la quittance et l\'envoie pour cette obligation', (
+      testeur,
+    ) async {
+      final session = await poser(
+        testeur,
+        echeancier: Echeancier(echeances: [echeance(code: 'CNPS')]),
+      );
+      await testeur.pumpAndSettle();
+
+      await testeur.runAsync(() async {
+        await testeur.tap(find.byKey(const Key('jai-paye-CNPS')));
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+      });
+      await testeur.pumpAndSettle();
+
+      expect(appareil.prises, 1);
+      expect(session.preuves, const ['CNPS']);
+      expect(find.textContaining('Le cabinet la vérifie'), findsOneWidget);
+    });
+
+    testWidgets('renoncer à la photo n\'envoie rien', (testeur) async {
+      prise = PriseDeVue(
+        appareil: AppareilFeint(racine, renonce: true),
+        file: FileDAttente(MagasinEnMemoire()),
+        photos: Directory('${racine.path}/photos'),
+      );
+      final session = await poser(
+        testeur,
+        echeancier: Echeancier(echeances: [echeance(code: 'CNPS')]),
+      );
+      await testeur.pumpAndSettle();
+
+      await testeur.runAsync(() async {
+        await testeur.tap(find.byKey(const Key('jai-paye-CNPS')));
+        await Future<void>.delayed(const Duration(milliseconds: 120));
+      });
+      await testeur.pumpAndSettle();
+
+      expect(session.preuves, isEmpty);
+    });
+
+    testWidgets(
+      'une panne dit que la quittance est PARTIE, pas qu elle est perdue',
+      (testeur) async {
+        // ⚠️ LE CAS QUI COMPTE. La quittance est déposée comme pièce ordinaire
+        // AVANT qu'on dise ce qu'elle acquitte. Si le rattachement échoue, elle
+        // est chez le cabinet, muette. Le taire ferait reprendre une photo, et
+        // le cabinet recevrait deux quittances.
+        final session = await poser(
+          testeur,
+          echeancier: Echeancier(echeances: [echeance(code: 'CNPS')]),
+        );
+        session.sortDeLaPreuve = Preuve.indisponible;
+        await testeur.pumpAndSettle();
+
+        await testeur.runAsync(() async {
+          await testeur.tap(find.byKey(const Key('jai-paye-CNPS')));
+          await Future<void>.delayed(const Duration(milliseconds: 120));
+        });
+        await testeur.pumpAndSettle();
+
+        expect(
+          find.textContaining('est arrivée au cabinet'),
+          findsOneWidget,
+        );
+        expect(find.textContaining('Inutile de la reprendre'), findsOneWidget);
+      },
+    );
   });
 
   testWidgets('Revenir dans l\'application redemande au serveur', (

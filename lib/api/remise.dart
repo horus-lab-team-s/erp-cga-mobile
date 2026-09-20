@@ -54,11 +54,12 @@ class Remise {
       if (depose.reponse != Reponse.accepte) {
         return depose.reponse;
       }
-      return await client.creerLaPiece(
+      final creee = await client.creerLaPiece(
         entreprise: depot.dossier,
         empreinte: depose.empreinte!,
         prisLe: depot.prisLe,
       );
+      return creee.reponse;
     } on SocketException {
       return Reponse.indisponible;
     } on HttpException {
@@ -71,6 +72,20 @@ class Remise {
       return Reponse.indisponible;
     }
   }
+}
+
+/// Ce que la création d'une pièce a produit : son sort, et son identifiant
+/// chez le cabinet quand elle a abouti.
+///
+/// ⚠️ L'identifiant peut manquer alors même que la pièce est acceptée : le
+/// serveur a répondu 201 mais son corps n'a pas pu être lu. Le dépôt est fait,
+/// il ne manque que le numéro — l'appelant ne peut alors pas enchaîner sur une
+/// preuve de paiement, et doit le dire plutôt que de faire semblant.
+class PieceCreee {
+  const PieceCreee({required this.reponse, this.identifiant});
+
+  final Reponse reponse;
+  final String? identifiant;
 }
 
 /// Le résultat de l'envoi des octets : l'empreinte, ou la raison de l'échec.

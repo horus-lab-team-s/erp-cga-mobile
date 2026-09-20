@@ -119,6 +119,7 @@ class _EtatDeLaCoquille extends State<Coquille> {
               session: widget.session,
               dossiers: dossiers,
               quandSessionExpire: widget.quandDeconnecte,
+              priseDeVue: widget.priseDeVue,
             ),
           if (dossiers == null)
             const _EnAttenteDeDossier(titre: 'Pièces remises')

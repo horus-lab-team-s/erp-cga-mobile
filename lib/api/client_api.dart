@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../domaine/echeance.dart';
 import '../domaine/file_d_attente.dart';
 import '../domaine/piece_remise.dart';
+import '../domaine/preuve.dart';
 import '../ports/service_de_session.dart';
 import 'remise.dart';
 
@@ -164,7 +165,7 @@ class ClientApi implements ServiceDeSession {
   }
 
   /// Crée la pièce qui cite l'empreinte, et rend le sort du dépôt.
-  Future<Reponse> creerLaPiece({
+  Future<PieceCreee> creerLaPiece({
     required String entreprise,
     required String empreinte,
     required DateTime prisLe,
@@ -199,8 +200,31 @@ class ClientApi implements ServiceDeSession {
       }),
     );
     final reponse = await requete.close();
-    await reponse.drain<void>();
-    return sortDuCode(reponse.statusCode);
+    final corps = await reponse.transform(utf8.decoder).join();
+    final sort = sortDuCode(reponse.statusCode);
+    if (sort != Reponse.accepte) {
+      return PieceCreee(reponse: sort);
+    }
+    // ⚠️ ON LIT DÉSORMAIS LE CORPS, alors qu'on le jetait.
+    //
+    // Le serveur rend la pièce créée, donc son IDENTIFIANT — « PJ-M08123-… ».
+    // C'est ce numéro, et lui seul, qu'on cite pour dire de quoi une quittance
+    // est la preuve : la route des preuves de paiement l'exige. L'empreinte ne
+    // lui sert pas, elle identifie des octets, pas une pièce du dossier.
+    //
+    // ⚠️ Un corps illisible ne fait pas échouer le dépôt : la pièce EST créée,
+    // le serveur a répondu 201. On rend donc l'acceptation sans identifiant, et
+    // c'est à l'appelant de constater qu'il ne peut pas enchaîner sur la preuve.
+    try {
+      final json = jsonDecode(corps) as Map<String, dynamic>;
+      final piece = json['piece'];
+      final identifiant = piece is Map<String, dynamic>
+          ? piece['identifiant'] as String?
+          : null;
+      return PieceCreee(reponse: sort, identifiant: identifiant);
+    } on Object {
+      return PieceCreee(reponse: sort);
+    }
   }
 
   /// Les dossiers que ce compte a le droit de déposer.
@@ -335,6 +359,91 @@ class ClientApi implements ServiceDeSession {
       return Echeancier(echeances: echeances);
     } on Object {
       return const Echeancier(serveurJoignable: false);
+    }
+  }
+
+  /// « J'ai déjà payé » : dépose la quittance, puis dit ce qu'elle acquitte.
+  ///
+  /// ─────────────────────────────────────────────────────────────────────────
+  /// ⚠️ TROIS APPELS, ET LE TROISIÈME SEUL PEUT ÊTRE REJOUÉ SANS DOMMAGE
+  ///
+  /// 1. les octets de la quittance, qui rendent une empreinte ;
+  /// 2. la création de la pièce, qui rend son identifiant ;
+  /// 3. le rattachement à l'obligation.
+  ///
+  /// Les deux premiers sont idempotents par construction : la même quittance
+  /// sur le même dossier rend la même pièce, inchangée. Le troisième refuse un
+  /// second envoi de la même pièce pour la même obligation, en 409 — ce qui est
+  /// juste, et que l'on traduit en refus et non en panne.
+  ///
+  /// ⚠️ SI LE TROISIÈME ÉCHOUE, LA QUITTANCE EST QUAND MÊME CHEZ LE CABINET.
+  /// Elle y est comme une pièce ordinaire, sans dire ce qu'elle acquitte. Ce
+  /// n'est pas rien, et l'écran doit le dire : sans cela l'adhérent
+  /// photographie une seconde fois, et le cabinet reçoit deux quittances.
+  /// ─────────────────────────────────────────────────────────────────────────
+  @override
+  Future<Preuve> envoyerLaPreuve({
+    required String dossier,
+    required Echeance echeance,
+    required String cheminDeLaPhoto,
+  }) async {
+    Preuve traduire(Reponse r) => switch (r) {
+      Reponse.accepte => Preuve.recue,
+      Reponse.refuse => Preuve.refusee,
+      Reponse.sessionExpiree => Preuve.sessionExpiree,
+      Reponse.indisponible => Preuve.indisponible,
+    };
+
+    try {
+      final fichier = File(cheminDeLaPhoto);
+      if (!await fichier.exists()) {
+        return Preuve.refusee;
+      }
+      final depose = await envoyerLeFichier(
+        entreprise: dossier,
+        fichier: fichier,
+      );
+      if (depose.reponse != Reponse.accepte) {
+        return traduire(depose.reponse);
+      }
+      final creee = await creerLaPiece(
+        entreprise: dossier,
+        empreinte: depose.empreinte!,
+        // ⚠️ La date de l'ÉCHÉANCE et non celle du jour : une quittance de
+        // janvier photographiée en septembre appartient à janvier. Le serveur
+        // borne l'antériorité à quatre-vingt-dix jours et refusera au-delà,
+        // ce qui est exact : une reprise d'historique n'est pas un dépôt.
+        prisLe: DateTime.now(),
+      );
+      if (creee.reponse != Reponse.accepte) {
+        return traduire(creee.reponse);
+      }
+      final identifiant = creee.identifiant;
+      if (identifiant == null) {
+        // La pièce existe, mais on n'a pas son numéro : on ne peut pas dire ce
+        // qu'elle acquitte. Ce n'est pas un refus du cabinet.
+        return Preuve.indisponible;
+      }
+
+      final requete = await _client.postUrl(
+        base.resolve('/obligations/dossiers/$dossier/preuves-de-paiement'),
+      );
+      _poserLaSession(requete);
+      requete.headers.contentType = ContentType.json;
+      String jour(DateTime d) => d.toIso8601String().split('T').first;
+      requete.write(
+        jsonEncode({
+          'code_obligation': echeance.codeObligation,
+          'periode_debut': jour(echeance.periodeDebut),
+          'periode_fin': jour(echeance.periodeFin),
+          'piece': identifiant,
+        }),
+      );
+      final reponse = await requete.close();
+      await reponse.drain<void>();
+      return traduire(sortDuCode(reponse.statusCode));
+    } on Object {
+      return Preuve.indisponible;
     }
   }
 

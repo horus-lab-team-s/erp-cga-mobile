@@ -72,6 +72,39 @@ class PriseDeVue {
     return depot;
   }
 
+  /// Photographie une pièce et en garde une copie durable, SANS la mettre en
+  /// file. Rend le chemin de la copie, ou `null` si l'adhérent a renoncé.
+  ///
+  /// ─────────────────────────────────────────────────────────────────────────
+  /// ⚠️ POURQUOI UNE QUITTANCE NE PASSE PAS PAR LA FILE
+  ///
+  /// La file dépose des pièces au fil de l'eau : chacune part seule, et le
+  /// cabinet l'identifie ensuite. Une quittance, elle, ne vaut que rattachée à
+  /// l'obligation qu'elle acquitte, et ce rattachement se fait dans le même
+  /// geste que le dépôt.
+  ///
+  /// La faire passer par la file la déposerait **deux fois** : une fois par la
+  /// file, une fois par l'envoi de la preuve. Le cabinet recevrait deux
+  /// quittances identiques, dont une muette.
+  ///
+  /// ⚠️ LA COPIE DURABLE RESTE INDISPENSABLE, elle. L'appareil photo du système
+  /// range son résultat dans un cache que le système vide quand la place
+  /// manque, sans prévenir. Entre la prise de vue et la fin de l'envoi, il y a
+  /// un aller-retour réseau : de quoi perdre le fichier sur un téléphone plein.
+  /// ─────────────────────────────────────────────────────────────────────────
+  Future<String?> copieDurable() async {
+    final provisoire = await appareil.photographier();
+    if (provisoire == null) {
+      return null;
+    }
+    await photos.create(recursive: true);
+    final durable = File(
+      '${photos.path}/Q-${DateTime.now().microsecondsSinceEpoch}.jpg',
+    );
+    await File(provisoire).copy(durable.path);
+    return durable.path;
+  }
+
   /// Efface les copies des dépôts qui ne sont plus dans la file.
   ///
   /// ⚠️ **Appelé APRÈS un vidage, jamais pendant.** Un dépôt quitte la file
