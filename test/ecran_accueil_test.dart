@@ -135,39 +135,84 @@ void main() {
     await testeur.pumpAndSettle();
   }
 
-  group('Ce que les compteurs disent', () {
-    testWidgets('une file vide est une bonne nouvelle, pas un vide', (
-      testeur,
-    ) async {
+  group("Le verdict, en tête d'écran", () {
+    testWidgets('une file vide conclut, au lieu de compter', (testeur) async {
       await poser(testeur);
 
-      expect(find.text('Tout est parti.'), findsOneWidget);
-      expect(find.text('Rien à reprendre.'), findsOneWidget);
-      expect(
-        testeur
-            .widget<Text>(find.byKey(const Key('compteur-attente-nombre')))
-            .data,
-        '0',
-      );
+      // ⚠️ L'adhérent ne vient pas lire un tableau de bord : il vient savoir si
+      // ses pièces sont parties. La phrase conclut à sa place.
+      expect(find.text('Tout est parti'), findsOneWidget);
+      expect(find.textContaining('Le cabinet a tout reçu'), findsOneWidget);
     });
 
-    testWidgets('un compte non nul dit quoi en attendre', (testeur) async {
+    testWidgets('une pièce en attente dit quoi en attendre', (testeur) async {
       await file.ajouter(depot('A'));
       await poser(testeur);
 
+      expect(find.text('Une pièce attend'), findsOneWidget);
+      expect(find.textContaining('Vous pouvez fermer'), findsOneWidget);
+    });
+
+    testWidgets('plusieurs pièces se comptent dans la phrase', (testeur) async {
+      await file.ajouter(depot('A'));
+      await file.ajouter(depot('B'));
+      await poser(testeur);
+
+      expect(find.text('2 pièces attendent'), findsOneWidget);
+    });
+
+    testWidgets("une pièce à reprendre l'emporte sur dix qui attendent", (
+      testeur,
+    ) async {
+      // ⚠️ L'état le plus GRAVE gouverne le verdict : une pièce à reprendre
+      // demande un geste, alors que celles qui attendent le réseau n'en
+      // demandent aucun.
+      await file.ajouter(depot('refusee'));
+      await file.vider((_) async => Reponse.refuse);
+      await file.ajouter(depot('A'));
+      await file.ajouter(depot('B'));
+      await poser(testeur);
+
+      expect(find.text('Une pièce à reprendre'), findsOneWidget);
       expect(
-        testeur
-            .widget<Text>(find.byKey(const Key('compteur-attente-nombre')))
-            .data,
-        '1',
-      );
-      expect(
-        find.textContaining('Partiront dès que le réseau'),
+        find.textContaining('Photographiez-les à nouveau'),
         findsOneWidget,
       );
     });
 
-    testWidgets("une pièce refusée dit qu'il faut la reprendre", (
+    testWidgets('sans dossier, le verdict le dit et donne la suite', (
+      testeur,
+    ) async {
+      await poser(testeur, session: SessionFeinte(dossiers: const []));
+
+      expect(find.text('Aucun dossier à votre nom'), findsOneWidget);
+      expect(
+        find.textContaining('Appelez votre chargé de clientèle'),
+        findsOneWidget,
+      );
+    });
+  });
+
+  group('Les pièces se montrent, et pas seulement leur nombre', () {
+    testWidgets("chaque pièce en attente porte l'heure de sa prise de vue", (
+      testeur,
+    ) async {
+      await file.ajouter(
+        Depot(
+          identifiant: 'A',
+          dossier: 'M081234567890P',
+          cheminDuFichier: '/tmp/a.jpg',
+          prisLe: DateTime(2026, 9, 19, 14, 5),
+        ),
+      );
+      await poser(testeur);
+
+      // ⚠️ « 3 » ne dit pas DE QUELLE facture il s'agit. L'heure, si.
+      expect(find.text('Photographiée le 19/09 à 14h05'), findsOneWidget);
+      expect(find.text('Dossier M081234567890P'), findsOneWidget);
+    });
+
+    testWidgets('une pièce refusée montre le motif du cabinet', (
       testeur,
     ) async {
       await file.ajouter(depot('A'));
@@ -175,13 +220,21 @@ void main() {
       await poser(testeur);
 
       expect(
-        testeur
-            .widget<Text>(find.byKey(const Key('compteur-reprendre-nombre')))
-            .data,
-        '1',
+        find.textContaining("Le cabinet ne l'a pas prise"),
+        findsOneWidget,
       );
-      // ⚠️ Un nombre ne dit pas quoi faire. La phrase, si.
-      expect(find.textContaining('À rephotographier'), findsOneWidget);
+    });
+
+    testWidgets("une vignette illisible ne fait pas tomber l'écran", (
+      testeur,
+    ) async {
+      // ⚠️ Le fichier peut avoir disparu. Sans garde, l'adhérent perdrait
+      // l'accès à TOUTE sa file pour une seule vignette.
+      await file.ajouter(depot('introuvable'));
+      await poser(testeur);
+
+      expect(find.text('Une pièce attend'), findsOneWidget);
+      expect(testeur.takeException(), isNull);
     });
   });
 
@@ -189,16 +242,7 @@ void main() {
     testWidgets('est écrit en toutes lettres', (testeur) async {
       await poser(testeur);
 
-      expect(find.text('Dossier M081234567890P'), findsOneWidget);
-    });
-
-    testWidgets('plusieurs dossiers se comptent', (testeur) async {
-      await poser(
-        testeur,
-        session: SessionFeinte(dossiers: const ['M081', 'M082']),
-      );
-
-      expect(find.text('2 dossiers à votre nom'), findsOneWidget);
+      expect(find.text('M081234567890P'), findsOneWidget);
     });
 
     testWidgets('sans dossier connu, on ne laisse pas photographier', (
@@ -215,7 +259,7 @@ void main() {
       // ⚠️ L'étiquette de lecture d'écran survit à la disparition du mot :
       // ce qui est évident à l'œil ne l'est pas à l'oreille.
       expect(bouton.tooltip, 'Photographier une pièce');
-      expect(find.textContaining('Aucun dossier connu'), findsOneWidget);
+      expect(find.text('Aucun dossier à votre nom'), findsOneWidget);
     });
 
     testWidgets("une panne réseau au lancement ne fait pas planter l'écran", (
@@ -223,7 +267,7 @@ void main() {
     ) async {
       await poser(testeur, session: SessionFeinte(panne: true));
 
-      expect(find.textContaining('Aucun dossier connu'), findsOneWidget);
+      expect(find.text('Aucun dossier à votre nom'), findsOneWidget);
     });
   });
 
@@ -255,12 +299,7 @@ void main() {
 
       expect(appels, 1);
       expect(find.text('1 pièce envoyée.'), findsOneWidget);
-      expect(
-        testeur
-            .widget<Text>(find.byKey(const Key('compteur-attente-nombre')))
-            .data,
-        '0',
-      );
+      expect(find.text('Tout est parti'), findsOneWidget);
     });
 
     testWidgets('sans réseau, rassure au lieu d\'alarmer', (testeur) async {

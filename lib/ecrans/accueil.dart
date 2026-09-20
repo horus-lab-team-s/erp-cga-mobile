@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../domaine/depot.dart';
@@ -200,69 +202,46 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
       body: RefreshIndicator(
         onRefresh: _relire,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 110),
           children: [
-            if (prete)
-              _Bandeau(
-                // ⚠️ Le dossier est écrit en toutes lettres. Un adhérent qui a
-                // deux entreprises doit savoir sur laquelle il dépose AVANT de
-                // photographier, pas après.
-                texte: _dossiers.length == 1
-                    ? 'Dossier ${_dossiers.single}'
-                    : '${_dossiers.length} dossiers à votre nom',
-                icone: Icons.business_outlined,
-              )
-            else
-              _Bandeau(
-                texte: "Aucun dossier connu pour l'instant.",
-                icone: Icons.cloud_off_outlined,
-                avertissement: true,
+            _Verdict(
+              enAttente: _enAttente.length,
+              aReprendre: _refuses.length,
+              dossier: prete
+                  ? (_dossiers.length == 1 ? _dossiers.single : null)
+                  : null,
+              sansDossier: !prete,
+            ),
+            if (_enAttente.isNotEmpty) ...[
+              const SizedBox(height: 26),
+              const _TitreDeSection(
+                texte: 'En attente de remise',
+                icone: Icons.schedule_outlined,
               ),
-            const SizedBox(height: 20),
-            _Compteur(
-              cle: 'compteur-attente',
-              titre: 'En attente de remise',
-              nombre: _enAttente.length,
-              // ⚠️ Zéro en attente n'est pas un vide à cacher : c'est la bonne
-              // nouvelle que l'adhérent est venu chercher.
-              vide: 'Tout est parti.',
-              plein: 'Partiront dès que le réseau le permet.',
-              icone: Icons.schedule_outlined,
-              teinte: couleurs.secondaryContainer,
-              surTeinte: couleurs.onSecondaryContainer,
-            ),
-            const SizedBox(height: 12),
-            _Compteur(
-              cle: 'compteur-reprendre',
-              titre: 'À reprendre',
-              nombre: _refuses.length,
-              vide: 'Rien à reprendre.',
-              plein: 'Le cabinet ne les a pas prises. À rephotographier.',
-              icone: Icons.replay_outlined,
-              teinte: _refuses.isEmpty
-                  ? couleurs.surfaceContainer
-                  : couleurs.errorContainer,
-              surTeinte: _refuses.isEmpty
-                  ? couleurs.onSurfaceVariant
-                  : couleurs.onErrorContainer,
-            ),
+              const SizedBox(height: 10),
+              for (final depot in _enAttente)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _Vignette(depot: depot),
+                ),
+            ],
+            if (_refuses.isNotEmpty) ...[
+              const SizedBox(height: 26),
+              const _TitreDeSection(
+                texte: 'À reprendre',
+                icone: Icons.replay_outlined,
+                alerte: true,
+              ),
+              const SizedBox(height: 10),
+              for (final depot in _refuses)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _Vignette(depot: depot, alerte: true),
+                ),
+            ],
           ],
         ),
       ),
-      // ⚠️ UN BOUTON ROND, SANS ÉTIQUETTE. Le geste est le seul de l'écran, et
-      // une caméra se reconnaît sans qu'on l'écrive. Le mot « Photographier »
-      // allongeait le bouton jusqu'au tiers de la largeur pour ne rien
-      // apprendre, et couvrait la deuxième carte dès qu'une pièce attendait.
-      //
-      // ⚠️ L'infobulle et l'étiquette de lecture d'écran RESTENT : ce qui est
-      // évident à l'œil ne l'est pas à l'oreille.
-      // ⚠️ La taille ORDINAIRE, 56 points, et non la grande de 96.
-      //
-      // La grande était choisie pour appuyer l'importance du geste. À l'écran
-      // elle faisait l'inverse : un disque d'un quart de la largeur, qui tirait
-      // l'œil avant les compteurs et couvrait la seconde carte dès qu'une pièce
-      // attendait. 56 points restent bien au-dessus de la cible minimale de 48,
-      // donc tenables d'une main occupée, sans écraser la page.
       floatingActionButton: FloatingActionButton(
         key: const Key('bouton-photographier'),
         onPressed: prete ? _photographier : null,
@@ -276,135 +255,252 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
   }
 }
 
-/// Une ligne d'information, sobre, en tête d'écran.
-class _Bandeau extends StatelessWidget {
-  const _Bandeau({
-    required this.texte,
-    required this.icone,
-    this.avertissement = false,
+/// La réponse à la seule question que l'adhérent se pose en ouvrant.
+///
+/// ─────────────────────────────────────────────────────────────────────────────
+/// ⚠️ DEUX COMPTEURS ÉGAUX NE RÉPONDAIENT À RIEN.
+///
+/// L'écran montrait « En attente : 0 » et « À reprendre : 0 », côte à côte, de
+/// même taille. L'adhérent qui ouvre l'application en tenant une facture ne
+/// vient pas lire un tableau de bord : il vient savoir **si ses pièces sont
+/// parties**. Deux cartes de même poids l'obligent à lire les deux, puis à
+/// conclure lui-même.
+///
+/// Une seule phrase, grande, qui conclut à sa place. Et l'état le plus grave
+/// l'emporte : une pièce à reprendre passe avant dix pièces qui attendent le
+/// réseau, parce qu'elle demande un geste alors que les autres n'en demandent
+/// aucun.
+/// ─────────────────────────────────────────────────────────────────────────────
+class _Verdict extends StatelessWidget {
+  const _Verdict({
+    required this.enAttente,
+    required this.aReprendre,
+    required this.dossier,
+    required this.sansDossier,
   });
 
-  final String texte;
-  final IconData icone;
-  final bool avertissement;
+  final int enAttente;
+  final int aReprendre;
+  final String? dossier;
+  final bool sansDossier;
 
   @override
   Widget build(BuildContext context) {
     final couleurs = Theme.of(context).colorScheme;
-    final fond = avertissement
-        ? couleurs.errorContainer
-        : couleurs.secondaryContainer;
-    final encre = avertissement
+
+    final (String phrase, String detail, IconData icone, bool grave) = switch ((
+      sansDossier,
+      aReprendre,
+      enAttente,
+    )) {
+      (true, _, _) => (
+        'Aucun dossier à votre nom',
+        "Le cabinet n'a pas encore ouvert votre espace. Appelez votre chargé de clientèle.",
+        Icons.cloud_off_outlined,
+        true,
+      ),
+      (_, final r, _) when r > 0 => (
+        r == 1 ? 'Une pièce à reprendre' : '$r pièces à reprendre',
+        "Le cabinet ne les a pas prises. Photographiez-les à nouveau.",
+        Icons.replay_outlined,
+        true,
+      ),
+      (_, _, 0) => (
+        'Tout est parti',
+        'Le cabinet a tout reçu. Rien ne vous attend.',
+        Icons.check_circle_outline,
+        false,
+      ),
+      (_, _, final n) => (
+        n == 1 ? 'Une pièce attend' : '$n pièces attendent',
+        'Elles partiront dès que le réseau le permet. Vous pouvez fermer.',
+        Icons.schedule_outlined,
+        false,
+      ),
+    };
+
+    final fond = grave ? couleurs.errorContainer : couleurs.secondaryContainer;
+    final encre = grave
         ? couleurs.onErrorContainer
         : couleurs.onSecondaryContainer;
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(18, 20, 18, 20),
       decoration: BoxDecoration(
         color: fond,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(14),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icone, size: 19, color: encre),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              texte,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: encre,
-              ),
+          Icon(icone, size: 30, color: encre),
+          const SizedBox(height: 12),
+          Text(
+            phrase,
+            key: const Key('verdict'),
+            style: TextStyle(
+              fontSize: 23,
+              height: 1.2,
+              fontWeight: FontWeight.w600,
+              color: encre,
             ),
           ),
+          const SizedBox(height: 6),
+          Text(
+            detail,
+            style: TextStyle(fontSize: 13.5, height: 1.4, color: encre),
+          ),
+          if (dossier != null) ...[
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Icon(Icons.business_outlined, size: 15, color: encre),
+                const SizedBox(width: 6),
+                Text(
+                  dossier!,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w500,
+                    color: encre,
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
   }
 }
 
-/// Un compte, et ce qu'il veut dire.
-///
-/// ⚠️ Le nombre ne se suffit pas. « 3 » sous « À reprendre » ne dit pas quoi
-/// faire ; « Le cabinet ne les a pas prises. À rephotographier. » le dit. Et
-/// l'écart entre zéro et le reste se lit aussi à la teinte du cadre, jamais à
-/// elle seule.
-class _Compteur extends StatelessWidget {
-  const _Compteur({
-    required this.cle,
-    required this.titre,
-    required this.nombre,
-    required this.vide,
-    required this.plein,
+class _TitreDeSection extends StatelessWidget {
+  const _TitreDeSection({
+    required this.texte,
     required this.icone,
-    required this.teinte,
-    required this.surTeinte,
+    this.alerte = false,
   });
 
-  final String cle;
-  final String titre;
-  final int nombre;
-  final String vide;
-  final String plein;
+  final String texte;
   final IconData icone;
-  final Color teinte;
-  final Color surTeinte;
+  final bool alerte;
 
   @override
   Widget build(BuildContext context) {
     final couleurs = Theme.of(context).colorScheme;
-    return Card(
-      key: Key(cle),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
-        child: Row(
-          children: [
-            Container(
-              width: 46,
-              height: 46,
-              decoration: BoxDecoration(
-                color: teinte,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(icone, size: 22, color: surTeinte),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    titre,
-                    style: TextStyle(
-                      fontSize: 15.5,
-                      fontWeight: FontWeight.w600,
-                      color: couleurs.onSurface,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    nombre == 0 ? vide : plein,
-                    style: TextStyle(
-                      fontSize: 13,
-                      height: 1.35,
-                      color: couleurs.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            Text(
-              '$nombre',
-              key: Key('$cle-nombre'),
-              style: TextStyle(
-                fontSize: 28,
-                fontWeight: FontWeight.w600,
-                color: nombre == 0 ? couleurs.onSurfaceVariant : surTeinte,
-              ),
-            ),
-          ],
+    final teinte = alerte ? couleurs.error : couleurs.onSurfaceVariant;
+    return Row(
+      children: [
+        Icon(icone, size: 17, color: teinte),
+        const SizedBox(width: 8),
+        Text(
+          texte,
+          style: TextStyle(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.4,
+            color: teinte,
+          ),
         ),
+      ],
+    );
+  }
+}
+
+/// Une pièce de la file, avec sa photographie.
+///
+/// ─────────────────────────────────────────────────────────────────────────────
+/// ⚠️ UN NOMBRE NE DIT PAS DE QUELLE FACTURE IL S'AGIT.
+///
+/// L'écran affichait « 3 » et rien d'autre. L'adhérent qui a photographié trois
+/// pièces dans la journée ne pouvait pas savoir lesquelles étaient parties, ni
+/// si celle du fournisseur qu'il attend en faisait partie. Il lui restait à
+/// rouvrir sa galerie et à comparer les heures.
+///
+/// La photographie est sur l'appareil, à portée immédiate : la montrer ne coûte
+/// rien et répond à la question. C'est la seule chose que cette application
+/// possède et que la console n'a pas — la pièce avant qu'elle ne parte.
+///
+/// ⚠️ `errorBuilder` n'est pas une précaution de principe : le fichier peut
+/// avoir disparu, ou n'être pas décodable. Sans lui, l'écran entier tombe sur
+/// une image illisible, et l'adhérent perd l'accès à toute sa file pour une
+/// vignette.
+/// ─────────────────────────────────────────────────────────────────────────────
+class _Vignette extends StatelessWidget {
+  const _Vignette({required this.depot, this.alerte = false});
+
+  final Depot depot;
+  final bool alerte;
+
+  String get _heure {
+    String d(int n) => n.toString().padLeft(2, '0');
+    return '${d(depot.prisLe.day)}/${d(depot.prisLe.month)} à '
+        '${d(depot.prisLe.hour)}h${d(depot.prisLe.minute)}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final couleurs = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: couleurs.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: alerte
+              ? couleurs.error.withValues(alpha: 0.45)
+              : couleurs.outlineVariant,
+        ),
+      ),
+      child: Row(
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: SizedBox(
+              width: 58,
+              height: 58,
+              child: Image.file(
+                File(depot.cheminDuFichier),
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => Container(
+                  color: couleurs.surfaceContainer,
+                  child: Icon(
+                    Icons.image_not_supported_outlined,
+                    size: 22,
+                    color: couleurs.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Photographiée le $_heure',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                    color: couleurs.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  alerte
+                      ? (depot.motifDuRefus ?? "Le cabinet ne l'a pas prise.")
+                      : 'Dossier ${depot.dossier}',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    height: 1.35,
+                    color: alerte ? couleurs.error : couleurs.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
