@@ -1,4 +1,5 @@
 import '../domaine/echeance.dart';
+import '../domaine/mon_entreprise.dart';
 import '../domaine/preuve.dart';
 import '../domaine/piece_remise.dart';
 
@@ -57,5 +58,19 @@ abstract class ServiceDeSession {
     required String dossier,
     required Echeance echeance,
     required String cheminDeLaPhoto,
+  });
+
+  /// La fiche du dossier, dans les mots de l'adhérent.
+  Future<Fiche> monEntreprise(String dossier);
+
+  /// Signale un changement au cabinet.
+  ///
+  /// ⚠️ **Rien ne change au dossier.** C'est une parole datée au journal,
+  /// annoncée au chargé de clientèle ; le cabinet instruit. Le port le dit ici
+  /// pour qu'aucun écran ne l'oublie en écrivant « adresse mise à jour ».
+  Future<SortDuSignalement> signalerUnChangement({
+    required String dossier,
+    required String nature,
+    required String message,
   });
 }

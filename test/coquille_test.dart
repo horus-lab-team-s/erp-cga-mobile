@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:cga_mobile/adaptateurs/magasin_memoire.dart';
 import 'package:cga_mobile/domaine/echeance.dart';
+import 'package:cga_mobile/domaine/mon_entreprise.dart';
 import 'package:cga_mobile/domaine/preuve.dart';
 import 'package:cga_mobile/domaine/file_d_attente.dart';
 import 'package:cga_mobile/domaine/piece_remise.dart';
@@ -72,6 +73,16 @@ class SessionFeinte implements ServiceDeSession {
     required Echeance echeance,
     required String cheminDeLaPhoto,
   }) async => Preuve.recue;
+
+  @override
+  Future<Fiche> monEntreprise(String dossier) async => const Fiche();
+
+  @override
+  Future<SortDuSignalement> signalerUnChangement({
+    required String dossier,
+    required String nature,
+    required String message,
+  }) async => SortDuSignalement.transmis;
 }
 
 class AppareilFeint implements AppareilPhoto {
@@ -122,16 +133,17 @@ void main() {
     return s;
   }
 
-  testWidgets('Les trois destinations sont là, et nommées', (testeur) async {
+  testWidgets('Les quatre destinations sont là, et nommées', (testeur) async {
     await poser(testeur);
 
-    // ⚠️ Trois, et pas cinq. « Mes documents » et « Mon entreprise » ne sont pas
-    // écrits : les annoncer montrerait à l'adhérent des portes qui ne s'ouvrent
-    // pas.
+    // ⚠️ Quatre, et pas cinq. « Mes documents » n'est pas écrit : le serveur a
+    // la route, mais elle rend zéro document faute que le cabinet en produise.
+    // Annoncer l'onglet ouvrirait une porte sur du vide.
     expect(find.byKey(const Key('onglet-deposer')), findsOneWidget);
     expect(find.byKey(const Key('onglet-echeances')), findsOneWidget);
     expect(find.byKey(const Key('onglet-pieces')), findsOneWidget);
-    expect(find.byType(NavigationDestination), findsNWidgets(3));
+    expect(find.byKey(const Key('onglet-entreprise')), findsOneWidget);
+    expect(find.byType(NavigationDestination), findsNWidgets(4));
   });
 
   testWidgets('Chaque onglet ouvre bien son écran', (testeur) async {
@@ -145,6 +157,15 @@ void main() {
     await testeur.tap(find.byKey(const Key('onglet-pieces')));
     await testeur.pumpAndSettle();
     expect(find.text('Pièces remises'), findsOneWidget);
+
+    await testeur.tap(find.byKey(const Key('onglet-entreprise')));
+    await testeur.pumpAndSettle();
+    // ⚠️ On vise le titre de l'ÉCRAN, pas n'importe quel texte : le libellé de
+    // l'onglet vit dans le même arbre, et un `find.text` nu les confondrait.
+    expect(
+      find.descendant(of: find.byType(AppBar), matching: find.text('Mon entreprise')),
+      findsOneWidget,
+    );
   });
 
   testWidgets(

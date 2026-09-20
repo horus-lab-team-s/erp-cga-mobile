@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../domaine/echeance.dart';
 import '../domaine/file_d_attente.dart';
+import '../domaine/mon_entreprise.dart';
 import '../domaine/piece_remise.dart';
 import '../domaine/preuve.dart';
 import '../ports/service_de_session.dart';
@@ -444,6 +445,66 @@ class ClientApi implements ServiceDeSession {
       return traduire(sortDuCode(reponse.statusCode));
     } on Object {
       return Preuve.indisponible;
+    }
+  }
+
+  @override
+  Future<Fiche> monEntreprise(String dossier) async {
+    try {
+      final requete = await _client.getUrl(
+        base.resolve('/portefeuille/entreprises/$dossier/mon-entreprise'),
+      );
+      _poserLaSession(requete);
+      final reponse = await requete.close();
+      final corps = await reponse.transform(utf8.decoder).join();
+      if (reponse.statusCode == HttpStatus.unauthorized) {
+        return const Fiche(sessionAExpire: true);
+      }
+      if (reponse.statusCode != HttpStatus.ok) {
+        return const Fiche(serveurJoignable: false);
+      }
+      final json = jsonDecode(corps);
+      if (json is! Map<String, dynamic>) {
+        return const Fiche(serveurJoignable: false);
+      }
+      return Fiche(entreprise: MonEntreprise.depuisJson(json));
+    } on Object {
+      return const Fiche(serveurJoignable: false);
+    }
+  }
+
+  @override
+  Future<SortDuSignalement> signalerUnChangement({
+    required String dossier,
+    required String nature,
+    required String message,
+  }) async {
+    try {
+      final requete = await _client.postUrl(
+        base.resolve('/portefeuille/entreprises/$dossier/signalements'),
+      );
+      _poserLaSession(requete);
+      requete.headers.contentType = ContentType.json;
+      requete.write(jsonEncode({'nature': nature, 'message': message}));
+      final reponse = await requete.close();
+      await reponse.drain<void>();
+      // ⚠️ LE 409 EST TRAITÉ À PART, ET CE N'EST PAS UN DÉTAIL.
+      //
+      // Le serveur refuse le même signalement, le même jour, par le même
+      // compte : c'est un double appui. Le fondre dans « refusé » ferait
+      // afficher un message d'échec à quelqu'un dont le cabinet est DÉJÀ
+      // prévenu, et il recommencerait, ou appellerait pour rien.
+      if (reponse.statusCode == HttpStatus.conflict) {
+        return SortDuSignalement.dejaSignale;
+      }
+      return switch (sortDuCode(reponse.statusCode)) {
+        Reponse.accepte => SortDuSignalement.transmis,
+        Reponse.refuse => SortDuSignalement.refuse,
+        Reponse.sessionExpiree => SortDuSignalement.sessionExpiree,
+        Reponse.indisponible => SortDuSignalement.indisponible,
+      };
+    } on Object {
+      return SortDuSignalement.indisponible;
     }
   }
 

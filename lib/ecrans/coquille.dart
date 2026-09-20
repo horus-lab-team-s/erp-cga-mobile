@@ -7,6 +7,7 @@ import '../ports/service_de_session.dart';
 import 'accueil.dart';
 import 'echeances.dart';
 import 'historique.dart';
+import 'mon_entreprise.dart';
 
 /// La charpente de l'application, une fois la session ouverte.
 ///
@@ -24,9 +25,11 @@ import 'historique.dart';
 /// navigation ajoutée après coup oblige à reprendre chaque écran, et les cas
 /// d'essai avec. Ici elle ne coûte qu'un fichier.
 ///
-/// ⚠️ TROIS DESTINATIONS, PAS CINQ. Les deux écrans qui manquent ne sont pas
-/// encore écrits ; les annoncer dans la barre montrerait à l'adhérent des portes
-/// qui ne s'ouvrent pas. On les ajoutera quand ils existeront.
+/// ⚠️ QUATRE DESTINATIONS, PAS CINQ. « Mes documents » n'est pas écrit : le
+/// serveur a bien la route, mais elle rend zéro document sur le dossier
+/// d'essai, faute que le cabinet en produise encore. Annoncer l'onglet
+/// montrerait à l'adhérent une porte qui s'ouvre sur du vide. On l'ajoutera
+/// quand il y aura quelque chose derrière.
 /// ─────────────────────────────────────────────────────────────────────────────
 class Coquille extends StatefulWidget {
   const Coquille({
@@ -131,6 +134,16 @@ class _EtatDeLaCoquille extends State<Coquille> {
               dossiers: dossiers,
               quandSessionExpire: widget.quandDeconnecte,
             ),
+          if (dossiers == null)
+            const _EnAttenteDeDossier(titre: 'Mon entreprise')
+          else if (dossiers.isEmpty)
+            const _SansDossier(titre: 'Mon entreprise')
+          else
+            EcranMonEntreprise(
+              session: widget.session,
+              dossiers: dossiers,
+              quandSessionExpire: widget.quandDeconnecte,
+            ),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -154,6 +167,16 @@ class _EtatDeLaCoquille extends State<Coquille> {
             icon: Icon(Icons.history_outlined),
             selectedIcon: Icon(Icons.history),
             label: 'Mes pièces',
+          ),
+          NavigationDestination(
+            key: Key('onglet-entreprise'),
+            icon: Icon(Icons.storefront_outlined),
+            selectedIcon: Icon(Icons.storefront),
+            // ⚠️ « Entreprise » et non « Mon entreprise » : l'écran porte déjà
+            // ce titre, et le répéter dans la barre du bas fait lire deux fois
+            // la même chose. Les trois autres onglets nomment déjà le geste et
+            // non l'écran — « Déposer » pour « Mes justificatifs ».
+            label: 'Entreprise',
           ),
         ],
       ),

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cga_mobile/ecrans/connexion.dart';
 import 'package:cga_mobile/marque.dart';
 import 'package:cga_mobile/domaine/echeance.dart';
+import 'package:cga_mobile/domaine/mon_entreprise.dart';
 import 'package:cga_mobile/domaine/preuve.dart';
 import 'package:cga_mobile/domaine/piece_remise.dart';
 import 'package:cga_mobile/ports/service_de_session.dart';
@@ -58,6 +59,16 @@ class SessionFeinte implements ServiceDeSession {
     required Echeance echeance,
     required String cheminDeLaPhoto,
   }) async => Preuve.recue;
+
+  @override
+  Future<Fiche> monEntreprise(String dossier) async => const Fiche();
+
+  @override
+  Future<SortDuSignalement> signalerUnChangement({
+    required String dossier,
+    required String nature,
+    required String message,
+  }) async => SortDuSignalement.transmis;
 }
 
 class SocketExceptionFeinte implements Exception {
@@ -256,4 +267,14 @@ class _SessionQuiAttend implements ServiceDeSession {
     required Echeance echeance,
     required String cheminDeLaPhoto,
   }) async => Preuve.recue;
+
+  @override
+  Future<Fiche> monEntreprise(String dossier) async => const Fiche();
+
+  @override
+  Future<SortDuSignalement> signalerUnChangement({
+    required String dossier,
+    required String nature,
+    required String message,
+  }) async => SortDuSignalement.transmis;
 }

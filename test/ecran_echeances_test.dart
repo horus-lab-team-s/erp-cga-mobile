@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:cga_mobile/adaptateurs/magasin_memoire.dart';
 import 'package:cga_mobile/domaine/echeance.dart';
+import 'package:cga_mobile/domaine/mon_entreprise.dart';
 import 'package:cga_mobile/domaine/file_d_attente.dart';
 import 'package:cga_mobile/domaine/prise_de_vue.dart';
 import 'package:cga_mobile/ports/appareil_photo.dart';
@@ -67,6 +68,16 @@ class SessionFeinte implements ServiceDeSession {
     preuves.add(echeance.codeObligation);
     return sortDeLaPreuve;
   }
+
+  @override
+  Future<Fiche> monEntreprise(String dossier) async => const Fiche();
+
+  @override
+  Future<SortDuSignalement> signalerUnChangement({
+    required String dossier,
+    required String nature,
+    required String message,
+  }) async => SortDuSignalement.transmis;
 }
 
 Echeance echeance({
