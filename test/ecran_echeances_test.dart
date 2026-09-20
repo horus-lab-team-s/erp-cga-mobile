@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:cga_mobile/adaptateurs/magasin_memoire.dart';
+import 'package:cga_mobile/domaine/document_recu.dart';
 import 'package:cga_mobile/domaine/echeance.dart';
 import 'package:cga_mobile/domaine/mon_entreprise.dart';
 import 'package:cga_mobile/domaine/file_d_attente.dart';
@@ -78,6 +79,9 @@ class SessionFeinte implements ServiceDeSession {
     required String nature,
     required String message,
   }) async => SortDuSignalement.transmis;
+
+  @override
+  Future<Documents> mesDocuments(String dossier) async => const Documents();
 }
 
 Echeance echeance({

@@ -1,3 +1,4 @@
+import '../domaine/document_recu.dart';
 import '../domaine/echeance.dart';
 import '../domaine/mon_entreprise.dart';
 import '../domaine/preuve.dart';
@@ -73,4 +74,7 @@ abstract class ServiceDeSession {
     required String nature,
     required String message,
   });
+
+  /// Les accusés de dépôt que le cabinet a obtenus pour ce dossier.
+  Future<Documents> mesDocuments(String dossier);
 }

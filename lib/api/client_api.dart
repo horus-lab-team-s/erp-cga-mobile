@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../domaine/document_recu.dart';
 import '../domaine/echeance.dart';
 import '../domaine/file_d_attente.dart';
 import '../domaine/mon_entreprise.dart';
@@ -505,6 +506,41 @@ class ClientApi implements ServiceDeSession {
       };
     } on Object {
       return SortDuSignalement.indisponible;
+    }
+  }
+
+  @override
+  Future<Documents> mesDocuments(String dossier) async {
+    try {
+      final requete = await _client.getUrl(
+        base.resolve('/obligations/dossiers/$dossier/mes-documents'),
+      );
+      _poserLaSession(requete);
+      final reponse = await requete.close();
+      final corps = await reponse.transform(utf8.decoder).join();
+      if (reponse.statusCode == HttpStatus.unauthorized) {
+        return const Documents(sessionAExpire: true);
+      }
+      if (reponse.statusCode != HttpStatus.ok) {
+        return const Documents(serveurJoignable: false);
+      }
+      final json = jsonDecode(corps);
+      if (json is! Map<String, dynamic>) {
+        return const Documents(serveurJoignable: false);
+      }
+      final lignes = json['documents'];
+      if (lignes is! List) {
+        return const Documents(serveurJoignable: false);
+      }
+      final documents = [
+        for (final l in lignes) DocumentRecu.depuisJson(l as Map<String, dynamic>),
+      ];
+      // Le plus récent en tête : on cherche la dernière déclaration déposée, pas
+      // celle d'il y a trois ans.
+      documents.sort((a, b) => b.deposeLe.compareTo(a.deposeLe));
+      return Documents(documents: documents);
+    } on Object {
+      return const Documents(serveurJoignable: false);
     }
   }
 

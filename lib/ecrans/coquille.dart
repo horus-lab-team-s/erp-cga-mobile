@@ -7,6 +7,7 @@ import '../ports/service_de_session.dart';
 import 'accueil.dart';
 import 'echeances.dart';
 import 'historique.dart';
+import 'documents.dart';
 import 'mon_entreprise.dart';
 
 /// La charpente de l'application, une fois la session ouverte.
@@ -25,11 +26,16 @@ import 'mon_entreprise.dart';
 /// navigation ajoutée après coup oblige à reprendre chaque écran, et les cas
 /// d'essai avec. Ici elle ne coûte qu'un fichier.
 ///
-/// ⚠️ QUATRE DESTINATIONS, PAS CINQ. « Mes documents » n'est pas écrit : le
-/// serveur a bien la route, mais elle rend zéro document sur le dossier
-/// d'essai, faute que le cabinet en produise encore. Annoncer l'onglet
-/// montrerait à l'adhérent une porte qui s'ouvre sur du vide. On l'ajoutera
-/// quand il y aura quelque chose derrière.
+/// ⚠️ CINQ DESTINATIONS, ET C'EST LE MAXIMUM.
+///
+/// « Mes documents » a longtemps manqué, non par oubli mais parce que le
+/// serveur rendait zéro accusé : le trou était dans le jeu de démonstration, et
+/// il a fallu le combler côté serveur avant d'ouvrir l'onglet. Annoncer une
+/// porte qui s'ouvre sur du vide aurait été pire que de la taire.
+///
+/// ⚠️ Au-delà de cinq, une barre de navigation Material se replie ou se tasse,
+/// et les libellés deviennent illisibles sur un téléphone étroit. Le prochain
+/// écran ne s'ajoutera pas ici : il faudra choisir ce qui descend d'un rang.
 /// ─────────────────────────────────────────────────────────────────────────────
 class Coquille extends StatefulWidget {
   const Coquille({
@@ -144,6 +150,16 @@ class _EtatDeLaCoquille extends State<Coquille> {
               dossiers: dossiers,
               quandSessionExpire: widget.quandDeconnecte,
             ),
+          if (dossiers == null)
+            const _EnAttenteDeDossier(titre: 'Mes documents')
+          else if (dossiers.isEmpty)
+            const _SansDossier(titre: 'Mes documents')
+          else
+            EcranDocuments(
+              session: widget.session,
+              dossiers: dossiers,
+              quandSessionExpire: widget.quandDeconnecte,
+            ),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -177,6 +193,12 @@ class _EtatDeLaCoquille extends State<Coquille> {
             // la même chose. Les trois autres onglets nomment déjà le geste et
             // non l'écran — « Déposer » pour « Mes justificatifs ».
             label: 'Entreprise',
+          ),
+          NavigationDestination(
+            key: Key('onglet-documents'),
+            icon: Icon(Icons.description_outlined),
+            selectedIcon: Icon(Icons.description),
+            label: 'Documents',
           ),
         ],
       ),

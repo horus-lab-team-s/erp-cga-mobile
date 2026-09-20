@@ -1,3 +1,4 @@
+import 'package:cga_mobile/domaine/document_recu.dart';
 import 'package:cga_mobile/domaine/echeance.dart';
 import 'package:cga_mobile/domaine/mon_entreprise.dart';
 import 'package:cga_mobile/domaine/piece_remise.dart';
@@ -58,6 +59,9 @@ class SessionFeinte implements ServiceDeSession {
     signalements.add((nature: nature, message: message));
     return sort;
   }
+
+  @override
+  Future<Documents> mesDocuments(String dossier) async => const Documents();
 }
 
 MonEntreprise entreprise({List<Signalement> signalements = const []}) =>

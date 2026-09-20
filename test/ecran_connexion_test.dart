@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cga_mobile/ecrans/connexion.dart';
 import 'package:cga_mobile/marque.dart';
+import 'package:cga_mobile/domaine/document_recu.dart';
 import 'package:cga_mobile/domaine/echeance.dart';
 import 'package:cga_mobile/domaine/mon_entreprise.dart';
 import 'package:cga_mobile/domaine/preuve.dart';
@@ -69,6 +70,9 @@ class SessionFeinte implements ServiceDeSession {
     required String nature,
     required String message,
   }) async => SortDuSignalement.transmis;
+
+  @override
+  Future<Documents> mesDocuments(String dossier) async => const Documents();
 }
 
 class SocketExceptionFeinte implements Exception {
@@ -277,4 +281,7 @@ class _SessionQuiAttend implements ServiceDeSession {
     required String nature,
     required String message,
   }) async => SortDuSignalement.transmis;
+
+  @override
+  Future<Documents> mesDocuments(String dossier) async => const Documents();
 }
