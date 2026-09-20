@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:cga_mobile/adaptateurs/magasin_memoire.dart';
 import 'package:cga_mobile/domaine/depot.dart';
 import 'package:cga_mobile/domaine/file_d_attente.dart';
+import 'package:cga_mobile/domaine/piece_remise.dart';
 import 'package:cga_mobile/domaine/prise_de_vue.dart';
 import 'package:cga_mobile/ecrans/accueil.dart';
 import 'package:cga_mobile/marque.dart';
@@ -36,6 +37,12 @@ class SessionFeinte implements ServiceDeSession {
     if (panne) throw const _Panne();
     return dossiers;
   }
+
+  /// ⚠️ La doublure rend un historique VIDE et non une erreur : ces cas-ci
+  /// portent sur la file d'attente, pas sur l'historique. Celui-ci a ses
+  /// propres cas, dans `ecran_historique_test.dart`.
+  @override
+  Future<Historique> mesPieces(String dossier) async => const Historique();
 }
 
 class _Panne implements Exception {
@@ -348,6 +355,35 @@ void main() {
 
       expect(session.fermee, isTrue);
       expect(sorti, isTrue);
+    });
+  });
+
+  group("L'accès aux pièces déjà remises", () {
+    testWidgets("un bouton y mène, et non un menu caché", (testeur) async {
+      // ⚠️ « Est-ce que je l'ai envoyée ? » est la deuxième question de
+      // l'adhérent, juste après « est-ce que ça part ? ». Sur un écran qui ne
+      // compte que quatre gestes, un menu ne range rien : il cache.
+      await poser(testeur);
+      await testeur.pumpAndSettle();
+
+      final bouton = testeur.widget<IconButton>(
+        find.byKey(const Key('bouton-historique')),
+      );
+      expect(bouton.onPressed, isNotNull);
+    });
+
+    testWidgets("il reste inerte tant qu'aucun dossier n'est ouvert", (
+      testeur,
+    ) async {
+      // Sans dossier, il n'y a rien à lire : ouvrir un écran qui ne pourra
+      // qu'échouer vaut moins qu'un bouton qui se tait.
+      await poser(testeur, session: SessionFeinte(dossiers: const []));
+      await testeur.pumpAndSettle();
+
+      final bouton = testeur.widget<IconButton>(
+        find.byKey(const Key('bouton-historique')),
+      );
+      expect(bouton.onPressed, isNull);
     });
   });
 }

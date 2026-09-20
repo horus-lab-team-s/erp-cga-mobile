@@ -6,6 +6,7 @@ import '../domaine/depot.dart';
 import '../ports/service_de_session.dart';
 import '../domaine/file_d_attente.dart';
 import '../domaine/prise_de_vue.dart';
+import 'historique.dart';
 
 /// L'écran d'après la connexion : l'état de la file, et rien d'autre pour
 /// l'instant.
@@ -190,6 +191,35 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
                   )
                 : const Icon(Icons.cloud_upload_outlined),
             tooltip: 'Envoyer maintenant',
+          ),
+          // ⚠️ L'HISTORIQUE EST À CÔTÉ DE L'ENVOI, ET NON DANS UN MENU.
+          //
+          // « Est-ce que je l'ai envoyée ? » est la deuxième question de
+          // l'adhérent, juste après « est-ce que ça part ? ». L'enterrer sous
+          // trois points la rendrait introuvable : sur un écran qui ne compte
+          // que quatre gestes, un menu ne range rien, il cache.
+          IconButton(
+            key: const Key('bouton-historique'),
+            onPressed: prete
+                ? () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => EcranHistorique(
+                        session: widget.session,
+                        dossiers: _dossiers,
+                        // ⚠️ La déconnexion passe par le MÊME chemin que partout
+                        // ailleurs. Une session expirée découverte depuis
+                        // l'historique doit ramener à la connexion comme une
+                        // session expirée découverte pendant un envoi : deux
+                        // sorties différentes pour la même cause laisseraient
+                        // l'application dans deux états qu'aucun écran ne sait
+                        // montrer.
+                        quandSessionExpire: widget.quandDeconnecte,
+                      ),
+                    ),
+                  )
+                : null,
+            icon: const Icon(Icons.history),
+            tooltip: 'Pièces déjà remises',
           ),
           IconButton(
             key: const Key('bouton-sortir'),

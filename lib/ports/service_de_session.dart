@@ -1,3 +1,5 @@
+import '../domaine/piece_remise.dart';
+
 /// Ce que les écrans attendent du serveur, et rien de plus.
 ///
 /// ─────────────────────────────────────────────────────────────────────────────
@@ -25,4 +27,13 @@ abstract class ServiceDeSession {
 
   /// Les dossiers que ce compte a le droit de déposer.
   Future<List<String>> mesDossiers();
+
+  /// Les pièces que le CABINET détient pour ce dossier, avec leur avancement.
+  ///
+  /// ⚠️ Un quatrième geste, et il a fallu le justifier : le port tient sa valeur
+  /// de sa brièveté. Celui-ci la mérite parce que l'écran d'historique en dépend
+  /// entièrement, et qu'un écran qui dépend d'un `ClientApi` est un écran que
+  /// personne ne peut éprouver sans serveur en face — ce que l'en-tête de ce
+  /// fichier raconte déjà pour les trois autres.
+  Future<Historique> mesPieces(String dossier);
 }

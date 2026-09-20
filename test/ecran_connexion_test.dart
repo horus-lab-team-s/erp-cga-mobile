@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cga_mobile/ecrans/connexion.dart';
 import 'package:cga_mobile/marque.dart';
+import 'package:cga_mobile/domaine/piece_remise.dart';
 import 'package:cga_mobile/ports/service_de_session.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -40,6 +41,9 @@ class SessionFeinte implements ServiceDeSession {
 
   @override
   Future<List<String>> mesDossiers() async => const ['M081234567890P'];
+
+  @override
+  Future<Historique> mesPieces(String dossier) async => const Historique();
 }
 
 class SocketExceptionFeinte implements Exception {
@@ -223,4 +227,7 @@ class _SessionQuiAttend implements ServiceDeSession {
 
   @override
   Future<List<String>> mesDossiers() async => const [];
+
+  @override
+  Future<Historique> mesPieces(String dossier) async => const Historique();
 }

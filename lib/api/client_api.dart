@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import '../domaine/file_d_attente.dart';
+import '../domaine/piece_remise.dart';
 import '../ports/service_de_session.dart';
 import 'remise.dart';
 
@@ -219,6 +220,71 @@ class ClientApi implements ServiceDeSession {
       return const [];
     }
     return [for (final d in dossiers) d as String];
+  }
+
+  /// Les pièces que le cabinet détient pour ce dossier.
+  ///
+  /// ─────────────────────────────────────────────────────────────────────────
+  /// ⚠️ CETTE MÉTHODE N'EMPRUNTE PAS `lire()`, ET C'EST VOULU
+  ///
+  /// `lire()` rend `null` dès que le serveur n'a pas répondu 200, sans dire
+  /// pourquoi. Pour les dossiers, c'était sans conséquence : une liste vide fait
+  /// une liste déroulante vide, l'adhérent voit bien que quelque chose manque.
+  ///
+  /// Ici, c'en aurait une. « Pas de réseau », « session expirée » et « vous
+  /// n'avez rien déposé » sont trois phrases différentes, dont deux appellent un
+  /// geste, et un `null` les confond toutes les trois. L'écran afficherait
+  /// « aucune pièce » à un adhérent qui en a remis deux cents.
+  ///
+  /// On distingue donc les sorts sur place, et l'on rend un [Historique] qui les
+  /// porte — comme [Vidage] le fait pour la file d'attente.
+  /// ─────────────────────────────────────────────────────────────────────────
+  @override
+  Future<Historique> mesPieces(String dossier) async {
+    try {
+      // ⚠️ `a_la_date` est EXIGÉ par la route : c'est la date de référence dont
+      // le serveur se sert pour calculer anciennetés et retards. On envoie le
+      // jour de l'appareil, qui est aussi celui que l'adhérent a sous les yeux.
+      final aujourdHui = DateTime.now().toIso8601String().split('T').first;
+      final requete = await _client.getUrl(
+        base.resolve(
+          '/collecte/pieces?entreprise=$dossier&a_la_date=$aujourdHui',
+        ),
+      );
+      _poserLaSession(requete);
+      final reponse = await requete.close();
+      final corps = await reponse.transform(utf8.decoder).join();
+      if (reponse.statusCode == HttpStatus.unauthorized) {
+        return const Historique(sessionAExpire: true);
+      }
+      if (reponse.statusCode != HttpStatus.ok) {
+        // ⚠️ Un 404 arrive ici quand le dossier sort du périmètre du compte —
+        // le serveur répond « ce dossier n'existe pas » plutôt que « vous n'y
+        // avez pas droit », et il a raison de ne pas renseigner un curieux sur
+        // l'existence des dossiers des autres. Vu d'ici, c'est un serveur qui
+        // n'a pas répondu, et l'écran le dira ainsi.
+        return const Historique(serveurJoignable: false);
+      }
+      final lignes = jsonDecode(corps);
+      if (lignes is! List) {
+        return const Historique(serveurJoignable: false);
+      }
+      final pieces = [
+        for (final ligne in lignes)
+          PieceRemise.depuisJson(ligne as Map<String, dynamic>),
+      ];
+      // ⚠️ LA PLUS RÉCENTE EN HAUT, à l'inverse de la file d'attente.
+      //
+      // La file part dans l'ordre de la prise de vue, parce que c'est la
+      // chronologie que le comptable doit voir arriver. Un historique se lit
+      // dans l'autre sens : on y cherche ce qu'on vient de faire, pas ce qu'on
+      // a fait il y a six mois.
+      pieces.sort((a, b) => b.deposeLe.compareTo(a.deposeLe));
+      return Historique(pieces: pieces);
+    } on Object {
+      // Pas de réseau, serveur injoignable, délai dépassé, corps illisible.
+      return const Historique(serveurJoignable: false);
+    }
   }
 
   /// « photo-2026-09-19-2110.jpg » : la date et l'heure de la prise de vue.
