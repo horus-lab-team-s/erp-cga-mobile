@@ -19,6 +19,8 @@
 /// ─────────────────────────────────────────────────────────────────────────────
 library;
 
+import 'heure_douala.dart';
+
 /// Un accusé de dépôt.
 class DocumentRecu {
   const DocumentRecu({
@@ -73,7 +75,7 @@ class DocumentRecu {
     numero: j['numero'] as String,
     titre: j['titre'] as String? ?? '',
     periode: j['periode'] as String? ?? '',
-    deposeLe: DateTime.parse(j['depose_le'] as String),
+    deposeLe: instantDeDouala(j['depose_le'] as String),
     guichet: j['guichet'] as String? ?? '',
     verifiable: j['verifiable'] as bool? ?? false,
     montantConstate: _montant(j['montant_constate']),

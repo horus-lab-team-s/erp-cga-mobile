@@ -7,9 +7,17 @@ import '../domaine/document_recu.dart';
 import '../domaine/echeance.dart';
 import '../domaine/file_d_attente.dart';
 import '../domaine/mon_entreprise.dart';
+import '../domaine/mon_mois.dart';
+import '../domaine/offre.dart';
 import '../domaine/piece_remise.dart';
+import '../domaine/souscription.dart';
+import '../domaine/suivi.dart';
+import '../domaine/vitrine.dart';
 import '../domaine/preuve.dart';
 import '../ports/service_de_session.dart';
+import '../ports/service_des_fichiers.dart';
+import '../ports/service_du_tableau_de_bord.dart';
+import '../ports/service_public.dart';
 import 'remise.dart';
 
 /// Le lien avec le serveur.
@@ -31,8 +39,33 @@ import 'remise.dart';
 /// ouvrirait deux vérités sur la même requête, et c'est exactement le défaut que
 /// le socle multi-locataire du serveur a été construit pour rendre impossible.
 /// ─────────────────────────────────────────────────────────────────────────────
-class ClientApi implements ServiceDeSession {
-  ClientApi({required this.base});
+class ClientApi
+    implements
+        ServiceDeSession,
+        ServicePublic,
+        ServiceDuTableauDeBord,
+        ServiceDesFichiers {
+  ClientApi({required this.base, Uri? vitrine})
+    : vitrine = vitrine ?? Uri.parse(adresseDeLaVitrineParDefaut);
+
+  /// L'adresse du site public, d'où viennent les images des articles et les
+  /// logos des institutions.
+  ///
+  /// ⚠️ Distincte de [base] : le serveur et le site ne sont pas servis au même
+  /// endroit — le port 8100 et le port 3101 en démonstration, deux domaines en
+  /// production.
+  final Uri vitrine;
+
+  /// ⚠️ Même règle que [adresseParDefaut] : réglée à la compilation, jamais
+  /// par un fichier qu'on oublierait.
+  ///
+  /// ```
+  /// flutter build apk --dart-define=CGA_VITRINE=http://localhost:3101
+  /// ```
+  static const String adresseDeLaVitrineParDefaut = String.fromEnvironment(
+    'CGA_VITRINE',
+    defaultValue: 'http://10.0.2.2:3101',
+  );
 
   /// L'adresse du serveur, sous-domaine du cabinet compris.
   ///
@@ -353,8 +386,9 @@ class ClientApi implements ServiceDeSession {
       // l'action urgente au milieu d'obligations à venir. L'adhérent ouvre
       // l'application pour savoir quoi faire, pas pour lire un calendrier.
       echeances.sort((a, b) {
-        final urgence = (b.etat.demandeUnGeste ? 1 : 0)
-            .compareTo(a.etat.demandeUnGeste ? 1 : 0);
+        final urgence = (b.etat.demandeUnGeste ? 1 : 0).compareTo(
+          a.etat.demandeUnGeste ? 1 : 0,
+        );
         if (urgence != 0) return urgence;
         return a.echeanceLe.compareTo(b.echeanceLe);
       });
@@ -533,7 +567,8 @@ class ClientApi implements ServiceDeSession {
         return const Documents(serveurJoignable: false);
       }
       final documents = [
-        for (final l in lignes) DocumentRecu.depuisJson(l as Map<String, dynamic>),
+        for (final l in lignes)
+          DocumentRecu.depuisJson(l as Map<String, dynamic>),
       ];
       // Le plus récent en tête : on cherche la dernière déclaration déposée, pas
       // celle d'il y a trois ans.
@@ -541,6 +576,296 @@ class ClientApi implements ServiceDeSession {
       return Documents(documents: documents);
     } on Object {
       return const Documents(serveurJoignable: false);
+    }
+  }
+
+  /// Le catalogue, au barème du jour.
+  ///
+  /// ⚠️ AUCUN COOKIE N'EST POSÉ SUR CET APPEL, et c'est délibéré. La route est
+  /// publique ; l'accompagner d'une session périmée ferait répondre 401 à un
+  /// visiteur qui n'a pas de compte et n'en demande pas. Le catalogue doit
+  /// s'afficher pour quelqu'un qui vient de télécharger l'application.
+  ///
+  /// ⚠️ `a_la_date` est EXIGÉ : les tarifs sont datés, et le serveur refuse de
+  /// deviner lequel on veut. On envoie le jour de l'appareil, qui est celui que
+  /// le visiteur a sous les yeux.
+  @override
+  Future<Offre> offreDuJour() async {
+    try {
+      final aujourdHui = DateTime.now().toIso8601String().split('T').first;
+      final requete = await _client.getUrl(
+        base.resolve('/souscription/services?a_la_date=$aujourdHui'),
+      );
+      final reponse = await requete.close();
+      final corps = await reponse.transform(utf8.decoder).join();
+      if (reponse.statusCode != HttpStatus.ok) {
+        return const Offre(serveurJoignable: false);
+      }
+      final json = jsonDecode(corps);
+      if (json is! List) {
+        return const Offre(serveurJoignable: false);
+      }
+      return Offre(
+        services: [
+          for (final s in json) Service.depuisJson(s as Map<String, dynamic>),
+        ],
+      );
+    } on Object {
+      return const Offre(serveurJoignable: false);
+    }
+  }
+
+  /// Un GET public, sans cookie, qui rend le JSON ou `null`.
+  ///
+  /// ⚠️ SANS COOKIE, comme [offreDuJour] : ces routes sont publiques, et une
+  /// session périmée jointe à l'appel ferait répondre 401 à un visiteur qui
+  /// n'a rien demandé.
+  ///
+  /// ⚠️ Un délai de réponse de quinze secondes EN PLUS du délai de connexion.
+  /// Le délai de connexion ne couvre que l'ouverture de la ligne : un serveur
+  /// qui accepte l'appel et ne répond jamais laissait le rond d'attente
+  /// tourner indéfiniment.
+  Future<Object?> _lirePublic(String chemin) async {
+    try {
+      final requete = await _client.getUrl(base.resolve(chemin));
+      final reponse = await requete.close().timeout(
+        const Duration(seconds: 15),
+      );
+      final corps = await reponse
+          .transform(utf8.decoder)
+          .join()
+          .timeout(const Duration(seconds: 15));
+      if (reponse.statusCode != HttpStatus.ok) return null;
+      return jsonDecode(corps);
+    } on Object {
+      return null;
+    }
+  }
+
+  @override
+  Future<bool> demanderUnLienDeReinitialisation(String courriel) async {
+    try {
+      // ⚠️ Sans cookie, comme les autres routes publiques.
+      final requete = await _client.postUrl(
+        base.resolve('/transverse/mot-de-passe/oubli'),
+      );
+      requete.headers.contentType = ContentType.json;
+      requete.write(jsonEncode({'courriel': courriel}));
+      final reponse = await requete.close().timeout(
+        const Duration(seconds: 15),
+      );
+      await reponse.drain<void>();
+      return reponse.statusCode == HttpStatus.accepted;
+    } on Object {
+      return false;
+    }
+  }
+
+  @override
+  Future<LectureDuSuivi> suivreUneSouscription(String reference) async {
+    try {
+      final requete = await _client.getUrl(
+        base.resolve(
+          '/souscription/souscriptions/${Uri.encodeComponent(reference)}',
+        ),
+      );
+      final reponse = await requete.close().timeout(
+        const Duration(seconds: 15),
+      );
+      final corps = await reponse.transform(utf8.decoder).join();
+      // ⚠️ 404 ET 422 DISENT LA MÊME CHOSE AU SOUSCRIPTEUR : cette référence
+      // ne mène à rien. Une faute de frappe dans une référence recopiée à la
+      // main n'est pas une panne, et ne doit pas se dire « pas de réseau ».
+      if (reponse.statusCode == HttpStatus.notFound ||
+          reponse.statusCode == HttpStatus.unprocessableEntity) {
+        return const LectureDuSuivi(SortDuSuivi.introuvable);
+      }
+      if (reponse.statusCode != HttpStatus.ok) {
+        return const LectureDuSuivi(SortDuSuivi.indisponible);
+      }
+      final json = jsonDecode(corps);
+      return json is Map<String, dynamic>
+          ? LectureDuSuivi(
+              SortDuSuivi.trouve,
+              SuiviDeSouscription.depuisJson(json),
+            )
+          : const LectureDuSuivi(SortDuSuivi.indisponible);
+    } on Object {
+      return const LectureDuSuivi(SortDuSuivi.indisponible);
+    }
+  }
+
+  @override
+  Future<List<Mensualite>?> mensualites(
+    String reference,
+    DateTime jusquAu,
+  ) async {
+    final borne = jusquAu.toIso8601String().split('T').first;
+    final json = await _lirePublic(
+      '/souscription/souscriptions/${Uri.encodeComponent(reference)}'
+      '/echeancier?jusqu_au=$borne',
+    );
+    if (json is! List) return null;
+    return [
+      for (final m in json) Mensualite.depuisJson(m as Map<String, dynamic>),
+    ];
+  }
+
+  @override
+  Future<Annonce?> annonceDuJour() async {
+    final jour = DateTime.now().toIso8601String().split('T').first;
+    final json = await _lirePublic('/vitrine/annonce?a_la_date=$jour');
+    return json is Map<String, dynamic> && json['texte'] != null
+        ? Annonce.depuisJson(json)
+        : null;
+  }
+
+  @override
+  Future<List<Article>?> articles() async {
+    final json = await _lirePublic('/vitrine/articles');
+    if (json is! Map<String, dynamic>) return null;
+    return [
+      for (final a in (json['articles'] as List? ?? []))
+        Article.depuisJson(a as Map<String, dynamic>),
+    ];
+  }
+
+  @override
+  Future<ArticleComplet?> article(String slug) async {
+    final json = await _lirePublic(
+      '/vitrine/articles/${Uri.encodeComponent(slug)}',
+    );
+    return json is Map<String, dynamic> && json['article'] != null
+        ? ArticleComplet.depuisJson(json)
+        : null;
+  }
+
+  @override
+  Future<List<Institution>> institutions() async {
+    final json = await _lirePublic('/vitrine/institutions');
+    if (json is! List) return const [];
+    return [
+      for (final i in json) Institution.depuisJson(i as Map<String, dynamic>),
+    ];
+  }
+
+  @override
+  Uri imageDeLaVitrine(String chemin) => vitrine.resolve(chemin);
+
+  /// Le motif que le serveur donne à son refus, s'il en donne un.
+  ///
+  /// ⚠️ On le cherche dans `detail`, qui est la forme du cadre, et l'on rend
+  /// `null` plutôt qu'une phrase inventée : « une erreur est survenue » laisse
+  /// le prospect recommencer à l'identique.
+  static String? _motif(String corps) {
+    try {
+      final json = jsonDecode(corps);
+      if (json is Map<String, dynamic>) {
+        final detail = json['detail'];
+        if (detail is String) return detail;
+        if (detail is List && detail.isNotEmpty) return '${detail.first}';
+      }
+    } on Object {
+      // Un corps illisible ne vaut pas mieux qu'un corps absent.
+    }
+    return null;
+  }
+
+  @override
+  Future<Demarche<Devis>> etablirUnDevis({
+    required Prospect prospect,
+    required List<String> services,
+  }) async {
+    try {
+      final requete = await _client.postUrl(
+        base.resolve('/souscription/devis'),
+      );
+      requete.headers.contentType = ContentType.json;
+      requete.write(
+        jsonEncode({
+          'prospect': prospect.versJson(),
+          'lignes': [
+            for (final s in services) {'service': s},
+          ],
+        }),
+      );
+      final reponse = await requete.close();
+      final corps = await reponse.transform(utf8.decoder).join();
+      if (reponse.statusCode == HttpStatus.created ||
+          reponse.statusCode == HttpStatus.ok) {
+        return Demarche(
+          sort: SortDeLaDemarche.fait,
+          valeur: Devis.depuisJson(jsonDecode(corps) as Map<String, dynamic>),
+        );
+      }
+      // ⚠️ 422 : prestation inconnue, ou formule impossible à déduire faute de
+      // chiffre d'affaires. C'est au prospect de corriger, pas une panne.
+      if (reponse.statusCode >= 400 && reponse.statusCode < 500) {
+        return Demarche(sort: SortDeLaDemarche.refuse, motif: _motif(corps));
+      }
+      return const Demarche(sort: SortDeLaDemarche.indisponible);
+    } on Object {
+      return const Demarche(sort: SortDeLaDemarche.indisponible);
+    }
+  }
+
+  @override
+  Future<Demarche<Engagement>> reglerLeDevis(String reference) async {
+    try {
+      final requete = await _client.postUrl(
+        base.resolve('/souscription/devis/$reference/engagement'),
+      );
+      requete.headers.contentType = ContentType.json;
+      requete.write('{}');
+      final reponse = await requete.close();
+      final corps = await reponse.transform(utf8.decoder).join();
+      if (reponse.statusCode == HttpStatus.created ||
+          reponse.statusCode == HttpStatus.ok) {
+        return Demarche(
+          sort: SortDeLaDemarche.fait,
+          valeur: Engagement.depuisJson(
+            jsonDecode(corps) as Map<String, dynamic>,
+          ),
+        );
+      }
+      if (reponse.statusCode >= 400 && reponse.statusCode < 500) {
+        return Demarche(sort: SortDeLaDemarche.refuse, motif: _motif(corps));
+      }
+      return const Demarche(sort: SortDeLaDemarche.indisponible);
+    } on Object {
+      return const Demarche(sort: SortDeLaDemarche.indisponible);
+    }
+  }
+
+  @override
+  Future<Demarche<String>> demanderLeRappelDuDevis(String reference) async {
+    try {
+      final requete = await _client.postUrl(
+        base.resolve('/acquisition/devis/$reference/rappel'),
+      );
+      requete.headers.contentType = ContentType.json;
+      requete.write('{}');
+      final reponse = await requete.close().timeout(
+        const Duration(seconds: 20),
+      );
+      final corps = await reponse.transform(utf8.decoder).join();
+      if (reponse.statusCode == HttpStatus.created ||
+          reponse.statusCode == HttpStatus.ok) {
+        final json = jsonDecode(corps);
+        final message = json is Map<String, dynamic> ? json['message'] : null;
+        return Demarche(
+          sort: SortDeLaDemarche.fait,
+          valeur: message is String ? message : null,
+        );
+      }
+      // 404 devis inconnu, 409 déjà engagé ou déjà réglable : le motif du
+      // serveur dit quoi faire, il s'affiche tel quel.
+      if (reponse.statusCode >= 400 && reponse.statusCode < 500) {
+        return Demarche(sort: SortDeLaDemarche.refuse, motif: _motif(corps));
+      }
+      return const Demarche(sort: SortDeLaDemarche.indisponible);
+    } on Object {
+      return const Demarche(sort: SortDeLaDemarche.indisponible);
     }
   }
 
@@ -560,6 +885,118 @@ class ClientApi implements ServiceDeSession {
         '${prisLe.year}-${deuxChiffres(prisLe.month)}-${deuxChiffres(prisLe.day)}';
     final heure = '${deuxChiffres(prisLe.hour)}${deuxChiffres(prisLe.minute)}';
     return 'photo-$jour-$heure.jpg';
+  }
+
+  // ── L'accueil connecté ───────────────────────────────────────────────────
+
+  @override
+  Future<String?> monNom() async {
+    try {
+      final requete = await _client.getUrl(base.resolve('/transverse/moi'));
+      _poserLaSession(requete);
+      final reponse = await requete.close();
+      final corps = await reponse.transform(utf8.decoder).join();
+      if (reponse.statusCode != HttpStatus.ok) return null;
+      final json = jsonDecode(corps);
+      final nom = json is Map<String, dynamic> ? json['nom_complet'] : null;
+      return nom is String && nom.trim().isNotEmpty ? nom.trim() : null;
+    } on Object {
+      return null;
+    }
+  }
+
+  @override
+  Future<MonMois> monMois(String dossier) async {
+    try {
+      final requete = await _client.getUrl(
+        base.resolve('/pilotage/dossiers/$dossier/mon-mois'),
+      );
+      _poserLaSession(requete);
+      final reponse = await requete.close();
+      final corps = await reponse.transform(utf8.decoder).join();
+      if (reponse.statusCode == HttpStatus.unauthorized) {
+        return const MonMois(sessionAExpire: true);
+      }
+      if (reponse.statusCode != HttpStatus.ok) {
+        return const MonMois(serveurJoignable: false);
+      }
+      final json = jsonDecode(corps);
+      return json is Map<String, dynamic>
+          ? MonMois.depuisJson(json)
+          : const MonMois(serveurJoignable: false);
+    } on Object {
+      return const MonMois(serveurJoignable: false);
+    }
+  }
+
+  @override
+  Future<SortDeLaReponse> repondre({
+    required String demande,
+    required NatureDeReponse nature,
+  }) async {
+    try {
+      final requete = await _client.postUrl(
+        base.resolve(
+          '/collecte/demandes/${Uri.encodeComponent(demande)}/reponse',
+        ),
+      );
+      _poserLaSession(requete);
+      requete.headers.contentType = ContentType.json;
+      requete.write(jsonEncode({'nature': nature.code}));
+      final reponse = await requete.close();
+      await reponse.drain<void>();
+      // ⚠️ LE 409 N'EST PAS UN ÉCHEC : le serveur a déjà une réponse du jour,
+      // ou la demande est close. Le cabinet a l'information ; l'afficher en
+      // erreur ferait recommencer l'adhérent, ou appeler pour rien.
+      if (reponse.statusCode == HttpStatus.conflict) {
+        return SortDeLaReponse.dejaRecue;
+      }
+      return switch (sortDuCode(reponse.statusCode)) {
+        Reponse.accepte => SortDeLaReponse.transmise,
+        Reponse.refuse => SortDeLaReponse.refusee,
+        Reponse.sessionExpiree => SortDeLaReponse.sessionExpiree,
+        Reponse.indisponible => SortDeLaReponse.indisponible,
+      };
+    } on Object {
+      return SortDeLaReponse.indisponible;
+    }
+  }
+
+  @override
+  Future<FichierLu> lireLeFichier(String piece) async {
+    try {
+      final requete = await _client.getUrl(
+        base.resolve('/collecte/pieces/${Uri.encodeComponent(piece)}/fichier'),
+      );
+      _poserLaSession(requete);
+      // ⚠️ Un délai plus long que pour une liste : un PDF de plusieurs pages
+      // en 3G se compte en dizaines de secondes, et le couper à quinze ferait
+      // dire « pas de réseau » à un téléchargement qui avançait.
+      final reponse = await requete.close().timeout(
+        const Duration(seconds: 20),
+      );
+      if (reponse.statusCode == HttpStatus.unauthorized) {
+        await reponse.drain<void>();
+        return const FichierLu(sessionAExpire: true);
+      }
+      if (reponse.statusCode == HttpStatus.notFound) {
+        await reponse.drain<void>();
+        return const FichierLu(introuvable: true);
+      }
+      if (reponse.statusCode != HttpStatus.ok) {
+        await reponse.drain<void>();
+        return const FichierLu(serveurJoignable: false);
+      }
+      final octets = await consolidateHttpClientResponseBytes(
+        reponse,
+      ).timeout(const Duration(seconds: 60));
+      return FichierLu(
+        octets: octets,
+        type: reponse.headers.contentType?.mimeType,
+      );
+    } on Object {
+      return const FichierLu(serveurJoignable: false);
+    }
   }
 
   void _poserLaSession(HttpClientRequest requete) {

@@ -1,0 +1,182 @@
+[
+    {
+        "code": "ADHESION",
+        "libelle": "Suivi comptable et fiscal — adhésion au centre agréé",
+        "nature": "ABONNEMENT",
+        "periodicite": "MENSUELLE",
+        "tarifs": [],
+        "formules": [
+            {
+                "code": "LIBERATOIRE",
+                "libelle": "Impôt libératoire",
+                "plancher": "0",
+                "plafond": "50000000",
+                "tarifs": [
+                    {
+                        "montant": "10000",
+                        "du": "2024-01-01",
+                        "au": "2026-01-01",
+                        "motif": "⚠️ Tarif reconstitué — voir l'en-tête du module"
+                    },
+                    {
+                        "montant": "12500",
+                        "du": "2026-01-01",
+                        "au": null,
+                        "motif": null
+                    }
+                ],
+                "inclus": [
+                    "Comptabilité simplifiée",
+                    "Déclaration trimestrielle",
+                    "Contrôle de vos pièces",
+                    "Relances par WhatsApp",
+                    "Un interlocuteur nommé"
+                ],
+                "souscriptible_en_ligne": true
+            },
+            {
+                "code": "REEL_SIMPLIFIE",
+                "libelle": "Réel simplifié",
+                "plancher": "50000000",
+                "plafond": "100000000",
+                "tarifs": [
+                    {
+                        "montant": "30000",
+                        "du": "2024-01-01",
+                        "au": "2026-01-01",
+                        "motif": "⚠️ Tarif reconstitué — voir l'en-tête du module"
+                    },
+                    {
+                        "montant": "35000",
+                        "du": "2026-01-01",
+                        "au": null,
+                        "motif": null
+                    }
+                ],
+                "inclus": [
+                    "Comptabilité SYSCOHADA complète",
+                    "Déclarations mensuelles de TVA",
+                    "Déclaration annuelle DSF",
+                    "Rapprochement bancaire mensuel",
+                    "Assistance en cas de contrôle",
+                    "Un comptable et un réviseur"
+                ],
+                "souscriptible_en_ligne": true
+            },
+            {
+                "code": "REEL",
+                "libelle": "Régime du réel",
+                "plancher": "100000000",
+                "plafond": null,
+                "tarifs": [
+                    {
+                        "montant": null,
+                        "du": "2024-01-01",
+                        "au": null,
+                        "motif": null
+                    }
+                ],
+                "inclus": [
+                    "Comptabilité complète et analytique",
+                    "Toutes déclarations fiscales et sociales",
+                    "Liasse fiscale et clôture",
+                    "Tableau de bord mensuel",
+                    "Accompagnement bancaire",
+                    "Hors régime du centre agréé"
+                ],
+                "souscriptible_en_ligne": false
+            }
+        ],
+        "unite": "FCFA par mois",
+        "resume": "Tenue des comptes, déclarations, contrôle des pièces et adhésion au centre de gestion agréé.",
+        "inclus": [],
+        "ouvre_un_dossier": true,
+        "souscriptible_en_ligne": true
+    },
+    {
+        "code": "DOMICILIATION",
+        "libelle": "Domiciliation commerciale",
+        "nature": "ANNUEL",
+        "periodicite": "ANNUELLE",
+        "tarifs": [
+            {
+                "montant": "160000",
+                "du": "2024-01-01",
+                "au": "2026-01-01",
+                "motif": "⚠️ Tarif reconstitué — voir l'en-tête du module"
+            },
+            {
+                "montant": "180000",
+                "du": "2026-01-01",
+                "au": null,
+                "motif": null
+            }
+        ],
+        "formules": [],
+        "unite": "FCFA pour douze mois",
+        "resume": "Adresse professionnelle, réception et réexpédition du courrier.",
+        "inclus": [],
+        "ouvre_un_dossier": false,
+        "souscriptible_en_ligne": true
+    },
+    {
+        "code": "FORMATION",
+        "libelle": "Formation — session interentreprises",
+        "nature": "PONCTUEL",
+        "periodicite": "UNIQUE",
+        "tarifs": [
+            {
+                "montant": "75000",
+                "du": "2024-01-01",
+                "au": null,
+                "motif": null
+            }
+        ],
+        "formules": [],
+        "unite": "FCFA par personne",
+        "resume": "Une journée, en présentiel, sur un thème fiscal ou comptable.",
+        "inclus": [],
+        "ouvre_un_dossier": false,
+        "souscriptible_en_ligne": true
+    },
+    {
+        "code": "CREATION",
+        "libelle": "Création d'entreprise",
+        "nature": "SUR_ETUDE",
+        "periodicite": "UNIQUE",
+        "tarifs": [
+            {
+                "montant": null,
+                "du": "2024-01-01",
+                "au": null,
+                "motif": null
+            }
+        ],
+        "formules": [],
+        "unite": null,
+        "resume": "Statuts, immatriculation, RCCM, NIU. Le montant dépend de la forme juridique, du capital et du greffe compétent.",
+        "inclus": [],
+        "ouvre_un_dossier": false,
+        "souscriptible_en_ligne": false
+    },
+    {
+        "code": "PONCTUEL",
+        "libelle": "Prestation ponctuelle",
+        "nature": "SUR_ETUDE",
+        "periodicite": "UNIQUE",
+        "tarifs": [
+            {
+                "montant": null,
+                "du": "2024-01-01",
+                "au": null,
+                "motif": null
+            }
+        ],
+        "formules": [],
+        "unite": null,
+        "resume": "Une mission délimitée : rattrapage de comptabilité, régularisation, assistance à un contrôle. Chiffrée après examen.",
+        "inclus": [],
+        "ouvre_un_dossier": false,
+        "souscriptible_en_ligne": false
+    }
+]

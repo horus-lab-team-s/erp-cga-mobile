@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../composants/carte.dart';
+import '../marque.dart';
 import '../domaine/mon_entreprise.dart';
 import '../ports/service_de_session.dart';
 
@@ -206,44 +208,29 @@ class _Contenu extends StatelessWidget {
     final e = entreprise;
     final couleurs = Theme.of(context).colorScheme;
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+      // ⚠️ La barre du bas flotte : le dernier bloc finirait dessous.
+      padding: EdgeInsets.fromLTRB(
+        Marque.espace4,
+        Marque.espace4,
+        Marque.espace4,
+        // ⚠️ `…De(context)` et non la constante : la barre flotte AU-DESSUS de
+        // l'encart système, que la constante seule ne couvre pas.
+        Marque.espaceSousLaBarreDe(context),
+      ),
       children: [
         // ── L'identité ────────────────────────────────────────────────────
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: couleurs.primaryContainer,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                e.denomination,
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  color: couleurs.onPrimaryContainer,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                e.forme,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: couleurs.onPrimaryContainer.withValues(alpha: 0.85),
-                ),
-              ),
-              const SizedBox(height: 10),
-              // ⚠️ Le NIU est ce que l'adhérent doit citer partout : au cabinet,
-              // aux impôts, sur ses factures. Il se sélectionne pour être
-              // recopié, ce qui évite de le lire à voix haute au téléphone.
-              SelectableText(
-                e.niu,
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: couleurs.onPrimaryContainer,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
-            ],
+        Chapeau(
+          titre: e.denomination,
+          detail: e.forme,
+          // ⚠️ Le NIU est ce que l'adhérent doit citer partout : au cabinet,
+          // aux impôts, sur ses factures. Il se sélectionne pour être recopié,
+          // ce qui évite de le lire à voix haute au téléphone.
+          dessous: SelectableText(
+            e.niu,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              color: couleurs.onSecondaryContainer,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
           ),
         ),
 
@@ -375,8 +362,18 @@ class _Contenu extends StatelessWidget {
 }
 
 const _moisEnFrancais = [
-  'janvier', 'février', 'mars', 'avril', 'mai', 'juin',
-  'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre',
+  'janvier',
+  'février',
+  'mars',
+  'avril',
+  'mai',
+  'juin',
+  'juillet',
+  'août',
+  'septembre',
+  'octobre',
+  'novembre',
+  'décembre',
 ];
 
 /// « 2023-01-01 » devient « 1er janvier 2023 ».
@@ -416,21 +413,21 @@ class _Bloc extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final couleurs = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: couleurs.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: couleurs.outlineVariant),
+    return Carte(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: children,
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: children),
     );
   }
 }
 
 class _Ligne extends StatelessWidget {
-  const _Ligne({required this.intitule, required this.valeur, this.fort = false});
+  const _Ligne({
+    required this.intitule,
+    required this.valeur,
+    this.fort = false,
+  });
 
   final String intitule;
   final String valeur;
@@ -450,9 +447,9 @@ class _Ligne extends StatelessWidget {
             width: 128,
             child: Text(
               intitule,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: couleurs.onSurfaceVariant,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: couleurs.onSurfaceVariant),
             ),
           ),
           Expanded(
@@ -486,9 +483,9 @@ class _ChoixDeNature extends StatelessWidget {
         children: [
           Text(
             'Que voulez-vous signaler ?',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: 12),
           for (final n in natures)

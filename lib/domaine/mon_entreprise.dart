@@ -144,7 +144,9 @@ class MonEntreprise {
 
   static MonEntreprise depuisJson(Map<String, dynamic> j) {
     final regime = j['regime'];
-    final r = regime is Map<String, dynamic> ? regime : const <String, dynamic>{};
+    final r = regime is Map<String, dynamic>
+        ? regime
+        : const <String, dynamic>{};
     return MonEntreprise(
       niu: j['niu'] as String? ?? '',
       denomination: j['denomination'] as String? ?? '',

@@ -1,4 +1,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- ⚠️ SANS CETTE LIGNE, UN APK DE PRODUCTION NE JOINT RIEN DU TOUT.
+         Elle n'était déclarée que dans les profils `debug` et `profile`, où le
+         gabarit de Flutter la pose pour le rechargement à chaud. La version
+         livrée, elle, fusionne `main` seul : le manifeste construit le 22
+         septembre ne portait AUCUNE permission réseau. L'application démarrait,
+         affichait sa page de connexion, et chaque appel échouait — un défaut
+         qu'aucun essai en développement ne peut révéler, puisque le profil de
+         développement la donne. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <!-- ⚠️ `android:label` est le nom SOUS L'ICÔNE, dans le tiroir
          d'applications. C'était « cga_mobile », le nom technique du projet :
          l'adhérent cherchait « CGA » et ne trouvait rien. Court, parce
@@ -10,7 +19,8 @@
     <application
         android:label="CGA Broad Range"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:networkSecurityConfig="@xml/reseau">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -44,10 +54,27 @@
          https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.
 
          In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
+    <!-- ⚠️ DEPUIS ANDROID 11, UNE APPLICATION NE VOIT PAS LES AUTRES SANS LE DÉCLARER.
+         Sans ces trois entrées, « Appeler », « WhatsApp » et « Écrire » ne font
+         RIEN : `canLaunchUrl` rend faux, en silence, sur un téléphone où WhatsApp
+         est pourtant installé. Le bouton paraît cassé alors que c'est une
+         déclaration qui manque. -->
     <queries>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.DIAL"/>
+            <data android:scheme="tel"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https"/>
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SENDTO"/>
+            <data android:scheme="mailto"/>
         </intent>
     </queries>
 </manifest>

@@ -30,19 +30,82 @@ très bien sur le site depuis le même téléphone.
 
 ```bash
 flutter pub get
-flutter test                                              # 33 cas : renvoi, durabilité, prise de vue
+flutter test                                              # 233 cas
 flutter run --dart-define=CGA_API=http://10.0.2.2:8010    # émulateur Android
 ```
 
 ⚠️ **`10.0.2.2`, pas `localhost`.** Dans l'émulateur Android, `localhost` désigne
 l'émulateur lui-même : l'appel ne sort jamais de l'appareil, et la panne ressemble à un
-serveur éteint. Sur un téléphone réel, mettre l'adresse de la machine sur le réseau local.
+serveur éteint.
+
+### Sur un vrai téléphone, branché en USB
+
+```bash
+adb reverse tcp:8100 tcp:8100                             # le port du serveur, vu du téléphone
+adb reverse tcp:3101 tcp:3101                             # le port de la vitrine (images du blog)
+flutter build apk --debug \
+  --dart-define=CGA_API=http://localhost:8100 \
+  --dart-define=CGA_VITRINE=http://localhost:3101
+adb install -r build/app/outputs/flutter-apk/app-debug.apk
+```
+
+⚠️ **NE JAMAIS COMPILER SANS `--dart-define`.** L'adresse retombe alors sur sa valeur par
+défaut, `10.0.2.2:8010`, qui ne désigne rien depuis un téléphone réel. L'application ne
+plante pas : elle attend dix secondes, le temps du délai de connexion, puis affiche « Pas
+de réseau ». On croit à une panne du serveur, et le serveur va très bien. C'est arrivé.
+
+Avec `adb reverse`, `localhost` sur le téléphone désigne la machine de développement :
+c'est l'inverse exact de la règle de l'émulateur, et les deux se confondent facilement.
+
+⚠️ **Les tunnels `adb reverse` disparaissent** quand le câble est débranché ou que le démon
+adb redémarre. Symptôme : « Pas de réseau » alors que tout tourne. On les relance, sans
+recompiler.
 
 L'adresse se règle à la compilation et non dans un fichier, pour qu'une version de
 démonstration ne puisse pas se retrouver branchée sur la production par un réglage oublié.
 
-Vérifié sur cette machine : `flutter analyze --fatal-infos` sans remarque, 33 cas au vert,
+Vérifié sur cette machine : `flutter analyze --fatal-infos` sans remarque, 233 cas au vert,
 `flutter build apk --debug` produit l'APK. Flutter 3.41.4, Dart 3.11.1.
+
+## Livrer
+
+```bash
+flutter build appbundle --release \
+  --dart-define=CGA_API=https://<cabinet>.cga-brcg.cm \
+  --dart-define=CGA_VITRINE=https://www.cga-brcgroup.com
+```
+
+⚠️ **Un paquet livré n'est pas un paquet de développement agrandi.** Trois choses ne
+s'y trouvent que si on les a écrites, et aucune ne se voit en développement :
+
+| Ce qu'il faut | Où | Ce qui arrive sans |
+|---|---|---|
+| `android.permission.INTERNET` | `android/app/src/main/AndroidManifest.xml` | Aucun appel ne part. Le gabarit de Flutter ne la pose que dans les profils `debug` et `profile` : la version livrée fusionne `main` seul. |
+| La politique de clair | `android/app/src/main/res/xml/reseau.xml` | `targetSdk` vaut 36 : tout `http://` est refusé par le système. La version de démonstration sur `localhost:8100` ne se connecte jamais. |
+| Les descriptions d'usage | `ios/Runner/Info.plist` | iOS **arrête l'application** au premier appui sur « Déposer », sans message. |
+
+⚠️ **La clé de signature se pose dans `android/key.properties`**, jamais dans le dépôt —
+le fichier y est ignoré. Sa forme :
+
+```properties
+storeFile=/chemin/vers/cga-brcg.jks
+storePassword=…
+keyAlias=cabinet
+keyPassword=…
+```
+
+Absent, la construction retombe sur la clé de débogage **en l'écrivant dans le journal**.
+C'est bon pour essayer sur un téléphone, jamais pour publier : Android refuse d'installer
+une mise à jour signée autrement que la version en place, et l'adhérent devrait
+désinstaller — en perdant sa session — pour recevoir la suivante.
+
+⚠️ **`appbundle`, pas `apk`.** Un APK unique porte les trois architectures : 52 Mo là où
+chaque téléphone n'en télécharge que dix-huit. Sur un forfait camerounais, ce n'est pas un
+détail de confort.
+
+Vérifié sur cette machine : `flutter build apk --release` produit l'APK, et le manifeste
+qu'il embarque déclare bien `INTERNET` et `@xml/reseau` — lu avec `aapt2 dump permissions`
+sur le paquet lui-même, pas sur un fichier intermédiaire.
 
 ## Comment c'est rangé
 
@@ -146,20 +209,23 @@ factures rejetées sans comprendre, alors que le cabinet n'a rien refusé.
 3. **L'envoi en plusieurs morceaux** si la connexion est mauvaise. Le fichier part
    aujourd'hui d'un bloc, et une coupure au milieu fait tout recommencer.
 
-## ⚠️ Ce qui n'a jamais tourné sur un vrai téléphone
+## ⚠️ Ce qui a tourné sur un vrai appareil, et ce qui n'a pas
 
-**Aucun appareil Android ou iOS n'a exécuté cette application.** Il n'y en a pas sur la
-machine où elle est écrite. Ce qui est donc vérifié, et ce qui ne l'est pas :
+**Un téléphone Android a exécuté cette application**, en version de développement, branché
+en USB, le serveur joint par `adb reverse`. Les écrans s'affichent, la session s'ouvre, le
+tableau de bord se remplit avec les vraies données du cabinet de démonstration. **Aucun
+appareil iOS, jamais.**
 
 | Vérifié | Comment |
 | --- | --- |
 | La règle de renvoi, la durabilité, la recopie | 33 cas, avec une source d'images feinte |
 | Le protocole, l'enveloppe multipart, le rejeu | `outils/remise_reelle.dart` contre le serveur réel |
-| Que le projet compile et s'assemble | `flutter build apk` |
+| Le rendu, à l'échelle de texte du système | Sur l'appareil, puis au banc de rendu `outils/` pour les tailles extrêmes |
+| Que le paquet livré est complet | `aapt2 dump permissions` sur l'APK lui-même |
 
-| **Non vérifié** | Ce qu'il faudra regarder au premier essai sur un appareil |
+| **Non vérifié** | Ce qu'il faudra regarder |
 | --- | --- |
-| L'appareil photo lui-même | `AppareilPhotoDuSysteme` fait quinze lignes et appelle l'appareil du système. Il n'a jamais été exécuté |
-| L'autorisation d'accès à l'appareil photo | Android la demande à l'usage ; rien ne prouve ici que le dialogue s'affiche |
-| L'orientation de l'image | Une photo prise en paysage peut arriver tournée. Cela se voit à l'œil, et seulement sur un appareil |
-| Le dossier des documents | Son chemin réel dépend du système. Les cas d'essai emploient un dossier temporaire |
+| iOS, entièrement | Ni appareil ni poste pour construire. Les descriptions d'usage sont écrites, jamais exercées |
+| L'APK **de production** sur un appareil | Il se construit et son manifeste est bon ; il n'a pas été installé |
+| L'orientation de l'image | Une photo prise en paysage peut arriver tournée. Cela se voit à l'œil, sur un appareil |
+| La qualité de l'envoi en réseau faible | Le fichier part d'un bloc ; une coupure au milieu fait tout recommencer |

@@ -1,6 +1,12 @@
 import 'package:flutter/material.dart';
+
+import '../marque.dart';
 import 'package:flutter/services.dart';
 
+import '../composants/carte.dart';
+import '../composants/champ_de_recherche.dart';
+import '../composants/porte_de_l_historique.dart';
+import '../domaine/recherche.dart';
 import '../domaine/document_recu.dart';
 import '../ports/service_de_session.dart';
 
@@ -25,11 +31,23 @@ class EcranDocuments extends StatefulWidget {
     required this.session,
     required this.dossiers,
     required this.quandSessionExpire,
+    this.ouvrirLHistorique,
   });
 
   final ServiceDeSession session;
   final List<String> dossiers;
   final VoidCallback quandSessionExpire;
+
+  /// Ouvre l'historique des pièces REMISES par l'adhérent.
+  ///
+  /// ⚠️ DEUX SENS, ET C'EST TOUT LE PROPOS DE CETTE PORTE.
+  ///
+  /// Cet écran ne montre qu'un sens : ce que le cabinet a déposé POUR
+  /// l'adhérent. L'autre sens — ce que l'adhérent a envoyé AU cabinet — vit sur
+  /// un écran distinct, et rien ici n'y menait. Or « Documents » est l'onglet
+  /// où l'on cherche un document, quel qu'en soit le sens : y taire la moitié
+  /// de ses documents revenait à les cacher.
+  final VoidCallback? ouvrirLHistorique;
 
   @override
   State<EcranDocuments> createState() => _EtatDesDocuments();
@@ -37,6 +55,13 @@ class EcranDocuments extends StatefulWidget {
 
 class _EtatDesDocuments extends State<EcranDocuments>
     with WidgetsBindingObserver {
+  /// Ce qui est tapé dans le champ de recherche.
+  ///
+  /// ⚠️ TENU PAR L'ÉCRAN, et non par le champ : la liste se reconstruit à
+  /// chaque frappe, et un état logé dans le champ se perdrait au premier
+  /// rafraîchissement.
+  String _recherche = '';
+
   Documents? _documents;
   bool _lectureEnCours = true;
   late String _dossier = widget.dossiers.first;
@@ -128,7 +153,12 @@ class _EtatDesDocuments extends State<EcranDocuments>
                 'accusés apparaîtront ici au fur et à mesure.',
             icone: Icons.inbox_outlined,
           ),
-          (_, final Documents x) => _Liste(documents: x.documents),
+          (_, final Documents x) => _Liste(
+            documents: x.documents,
+            ouvrirLHistorique: widget.ouvrirLHistorique,
+            recherche: _recherche,
+            surRecherche: (v) => setState(() => _recherche = v),
+          ),
         },
       ),
     );
@@ -136,9 +166,24 @@ class _EtatDesDocuments extends State<EcranDocuments>
 }
 
 class _Liste extends StatelessWidget {
-  const _Liste({required this.documents});
+  const _Liste({
+    required this.documents,
+    required this.recherche,
+    required this.surRecherche,
+    this.ouvrirLHistorique,
+  });
 
   final List<DocumentRecu> documents;
+  final VoidCallback? ouvrirLHistorique;
+  final String recherche;
+  final ValueChanged<String> surRecherche;
+
+  /// À partir de combien d'accusés le champ de recherche apparaît.
+  ///
+  /// ⚠️ HUIT : au-delà, la liste dépasse un écran de téléphone et l'on commence
+  /// à faire défiler pour retrouver une ligne. En deçà, on lit les huit plus
+  /// vite qu'on ne tape, et le champ n'est que du bruit en tête de page.
+  static const seuilDeRecherche = 8;
 
   @override
   Widget build(BuildContext context) {
@@ -146,42 +191,62 @@ class _Liste extends StatelessWidget {
     // ⚠️ Groupé par ANNÉE, et non par mois comme les pièces remises. Un accusé
     // se cherche par exercice — « les dépôts de 2024 » — parce que c'est la
     // maille dont l'administration parle quand elle en réclame un.
+    // ⚠️ LE FILTRE PORTE SUR CE QUE L'ADHÉRENT CONNAÎT DE LA LIGNE : le numéro
+    // qu'il recopie, le nom de la déclaration, la période, et le guichet. Pas
+    // sur le montant : on ne cherche pas un accusé par son montant, et « 1 340 »
+    // rendrait des lignes au hasard.
+    final retenus = [
+      for (final d in documents)
+        if (correspond([d.numero, d.titre, d.periode, d.guichet], recherche)) d,
+    ];
     final parAnnee = <int, List<DocumentRecu>>{};
-    for (final d in documents) {
+    for (final d in retenus) {
       parAnnee.putIfAbsent(d.deposeLe.year, () => []).add(d);
     }
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+      // ⚠️ La barre du bas flotte : le dernier accusé finirait dessous.
+      padding: EdgeInsets.fromLTRB(
+        Marque.espace4,
+        Marque.espace4,
+        Marque.espace4,
+        // ⚠️ `…De(context)` et non la constante : la barre flotte AU-DESSUS de
+        // l'encart système, que la constante seule ne couvre pas.
+        Marque.espaceSousLaBarreDe(context),
+      ),
       children: [
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: couleurs.primaryContainer,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '${documents.length} accusé${documents.length > 1 ? "s" : ""} '
-                'de dépôt',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  color: couleurs.onPrimaryContainer,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Le cabinet a déposé ces déclarations en votre nom. Citez le '
-                'numéro si l\'administration vous en demande la preuve.',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: couleurs.onPrimaryContainer.withValues(alpha: 0.85),
-                  height: 1.4,
-                ),
-              ),
-            ],
-          ),
+        Chapeau(
+          titre: recherche.isEmpty
+              ? '${documents.length} accusé${documents.length > 1 ? "s" : ""} '
+                    'de dépôt'
+              // ⚠️ Pendant une recherche, le compte porte sur ce qui est
+              // MONTRÉ, sinon le chapeau annonce soixante-cinq lignes au-dessus
+              // de trois.
+              : '${retenus.length} sur ${documents.length}',
+          detail:
+              'Le cabinet a déposé ces déclarations en votre nom. Citez le '
+              'numéro si l\'administration vous en demande la preuve.',
         ),
+        if (ouvrirLHistorique != null) ...[
+          const SizedBox(height: 14),
+          PorteDeLHistorique(surAppui: ouvrirLHistorique!),
+        ],
+        if (documents.length >= seuilDeRecherche) ...[
+          const SizedBox(height: 14),
+          ChampDeRecherche(
+            valeur: recherche,
+            surChangement: surRecherche,
+            invite: 'Numéro, déclaration, période…',
+          ),
+        ],
+        // ⚠️ « Rien ne correspond » et JAMAIS « aucun accusé » : dire à un
+        // adhérent que le cabinet n'a rien déposé pour lui, alors que c'est sa
+        // recherche qui ne rend rien, est le message qui fait appeler en
+        // urgence.
+        if (retenus.isEmpty)
+          RienNeCorrespond(
+            recherche: recherche,
+            surEffacer: () => surRecherche(''),
+          ),
         for (final annee in parAnnee.keys) ...[
           const SizedBox(height: 24),
           Row(
@@ -201,7 +266,9 @@ class _Liste extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 10),
-              Expanded(child: Divider(color: couleurs.outlineVariant, height: 1)),
+              Expanded(
+                child: Divider(color: couleurs.outlineVariant, height: 1),
+              ),
             ],
           ),
           const SizedBox(height: 10),
@@ -225,13 +292,8 @@ class _Carte extends StatelessWidget {
   Widget build(BuildContext context) {
     final d = document;
     final couleurs = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: couleurs.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: couleurs.outlineVariant),
-      ),
+    return Carte(
+      relief: ReliefDeCarte.liste,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -261,9 +323,9 @@ class _Carte extends StatelessWidget {
           const SizedBox(height: 3),
           Text(
             '${d.periode} · ${d.guichet} · déposé le ${_jour(d.deposeLe)}',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: couleurs.onSurfaceVariant,
-            ),
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: couleurs.onSurfaceVariant),
           ),
           const SizedBox(height: 12),
 
@@ -281,7 +343,7 @@ class _Carte extends StatelessWidget {
                 SnackBar(content: Text('Numéro ${d.numero} copié')),
               );
             },
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(Marque.rayonBloc),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
               child: Row(
@@ -340,11 +402,22 @@ class _Carte extends StatelessWidget {
 }
 
 const _moisEnFrancais = [
-  'janvier', 'février', 'mars', 'avril', 'mai', 'juin',
-  'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre',
+  'janvier',
+  'février',
+  'mars',
+  'avril',
+  'mai',
+  'juin',
+  'juillet',
+  'août',
+  'septembre',
+  'octobre',
+  'novembre',
+  'décembre',
 ];
 
-String _jour(DateTime d) => '${d.day} ${_moisEnFrancais[d.month - 1]} ${d.year}';
+String _jour(DateTime d) =>
+    '${d.day} ${_moisEnFrancais[d.month - 1]} ${d.year}';
 
 /// « 1 340 000 F » : tranches de trois, séparées par une espace.
 String _montant(double v) {

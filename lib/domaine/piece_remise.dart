@@ -34,6 +34,8 @@
 /// ─────────────────────────────────────────────────────────────────────────────
 library;
 
+import 'heure_douala.dart';
+
 /// Où en est la pièce dans le traitement du cabinet.
 ///
 /// ⚠️ Les cinq états du serveur, traduits ici SANS EN INVENTER UN SIXIÈME. La
@@ -156,7 +158,7 @@ class PieceRemise {
   /// c'est normal : une photo qui vient d'arriver n'a ni émetteur ni montant.
   static PieceRemise depuisJson(Map<String, dynamic> json) => PieceRemise(
     identifiant: json['identifiant'] as String,
-    deposeLe: DateTime.parse(json['depose_le'] as String),
+    deposeLe: instantDeDouala(json['depose_le'] as String),
     etat: EtatChezLeCabinet.depuisLeServeur(json['etat'] as String?),
     canal: json['canal'] as String? ?? 'INDETERMINE',
     nomDuFichier: json['nom_fichier'] as String?,

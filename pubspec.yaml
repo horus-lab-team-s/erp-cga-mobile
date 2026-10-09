@@ -36,6 +36,8 @@ dependencies:
   cupertino_icons: ^1.0.8
   path_provider: ^2.1.6
   image_picker: ^1.2.3
+  url_launcher: ^6.3.2
+  pdfx: ^2.11.0
 
 dev_dependencies:
   flutter_test:
@@ -64,6 +66,7 @@ flutter:
   # puisque c'est précisément là qu'on vient le chercher.
   assets:
     - assets/marque/
+    - assets/photos/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

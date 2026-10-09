@@ -203,28 +203,29 @@ void main() {
       expect(find.text('Reçue par le cabinet'), findsOneWidget);
     });
 
-    testWidgets('les pièces se rangent par mois, du plus récent au plus vieux', (
-      testeur,
-    ) async {
-      await poser(
-        testeur,
-        historique: Historique(
-          pieces: [
-            piece(identifiant: 'PJ-1', deposeLe: '2026-09-18'),
-            piece(identifiant: 'PJ-2', deposeLe: '2026-09-04'),
-            piece(identifiant: 'PJ-3', deposeLe: '2026-08-27'),
-          ],
-        ),
-      );
-      await testeur.pumpAndSettle();
+    testWidgets(
+      'les pièces se rangent par mois, du plus récent au plus vieux',
+      (testeur) async {
+        await poser(
+          testeur,
+          historique: Historique(
+            pieces: [
+              piece(identifiant: 'PJ-1', deposeLe: '2026-09-18'),
+              piece(identifiant: 'PJ-2', deposeLe: '2026-09-04'),
+              piece(identifiant: 'PJ-3', deposeLe: '2026-08-27'),
+            ],
+          ),
+        );
+        await testeur.pumpAndSettle();
 
-      expect(find.text('Septembre 2026'), findsOneWidget);
-      expect(find.text('Août 2026'), findsOneWidget);
-      // Le mois le plus récent d'abord : c'est ce qu'on vient chercher.
-      final septembre = testeur.getTopLeft(find.text('Septembre 2026')).dy;
-      final aout = testeur.getTopLeft(find.text('Août 2026')).dy;
-      expect(septembre, lessThan(aout));
-    });
+        expect(find.text('Septembre 2026'), findsOneWidget);
+        expect(find.text('Août 2026'), findsOneWidget);
+        // Le mois le plus récent d'abord : c'est ce qu'on vient chercher.
+        final septembre = testeur.getTopLeft(find.text('Septembre 2026')).dy;
+        final aout = testeur.getTopLeft(find.text('Août 2026')).dy;
+        expect(septembre, lessThan(aout));
+      },
+    );
 
     testWidgets(
       "une pièce sans rien à détailler ne réserve pas la ligne pour autant",
@@ -274,27 +275,26 @@ void main() {
   });
 
   group('Ce que l\'adhérent voit quand quelque chose manque', () {
-    testWidgets(
-      'PAS DE RÉSEAU NE SE DIT JAMAIS « aucune pièce remise »',
-      (testeur) async {
-        // ⚠️ LE CAS QUI JUSTIFIE TOUT LE TYPE `Historique`. Les deux situations
-        // rendent zéro pièce ; l'une veut dire « vous n'avez rien déposé »,
-        // l'autre « je n'ai pas pu demander ». Dire la première à quelqu'un qui
-        // a tout déposé est le pire mensonge que cet écran puisse faire.
-        await poser(
-          testeur,
-          historique: const Historique(serveurJoignable: false),
-        );
-        await testeur.pumpAndSettle();
+    testWidgets('PAS DE RÉSEAU NE SE DIT JAMAIS « aucune pièce remise »', (
+      testeur,
+    ) async {
+      // ⚠️ LE CAS QUI JUSTIFIE TOUT LE TYPE `Historique`. Les deux situations
+      // rendent zéro pièce ; l'une veut dire « vous n'avez rien déposé »,
+      // l'autre « je n'ai pas pu demander ». Dire la première à quelqu'un qui
+      // a tout déposé est le pire mensonge que cet écran puisse faire.
+      await poser(
+        testeur,
+        historique: const Historique(serveurJoignable: false),
+      );
+      await testeur.pumpAndSettle();
 
-        expect(find.text('Pas de réseau'), findsOneWidget);
-        expect(find.text('Aucune pièce remise'), findsNothing);
-        expect(
-          find.textContaining('Vos pièces remises sont chez le cabinet'),
-          findsOneWidget,
-        );
-      },
-    );
+      expect(find.text('Pas de réseau'), findsOneWidget);
+      expect(find.text('Aucune pièce remise'), findsNothing);
+      expect(
+        find.textContaining('Vos pièces remises sont chez le cabinet'),
+        findsOneWidget,
+      );
+    });
 
     testWidgets('un dossier réellement vide le dit, et rassure', (
       testeur,
@@ -306,24 +306,25 @@ void main() {
       expect(find.text('Pas de réseau'), findsNothing);
     });
 
-    testWidgets('une session expirée demande de se reconnecter, et le signale', (
-      testeur,
-    ) async {
-      var renvoye = false;
-      await poser(
-        testeur,
-        historique: const Historique(sessionAExpire: true),
-        quandSessionExpire: () => renvoye = true,
-      );
-      await testeur.pumpAndSettle();
+    testWidgets(
+      'une session expirée demande de se reconnecter, et le signale',
+      (testeur) async {
+        var renvoye = false;
+        await poser(
+          testeur,
+          historique: const Historique(sessionAExpire: true),
+          quandSessionExpire: () => renvoye = true,
+        );
+        await testeur.pumpAndSettle();
 
-      expect(find.text('Session expirée'), findsOneWidget);
-      // ⚠️ L'écran ne décide pas lui-même de renvoyer à la connexion : il
-      // prévient celui qui l'a ouvert, pour que la sortie soit la même que
-      // depuis l'accueil. Deux sorties pour la même cause laisseraient
-      // l'application dans deux états qu'aucun écran ne sait montrer.
-      expect(renvoye, isTrue);
-    });
+        expect(find.text('Session expirée'), findsOneWidget);
+        // ⚠️ L'écran ne décide pas lui-même de renvoyer à la connexion : il
+        // prévient celui qui l'a ouvert, pour que la sortie soit la même que
+        // depuis l'accueil. Deux sorties pour la même cause laisseraient
+        // l'application dans deux états qu'aucun écran ne sait montrer.
+        expect(renvoye, isTrue);
+      },
+    );
 
     testWidgets('pendant la lecture, l\'écran attend au lieu de mentir', (
       testeur,
@@ -412,9 +413,7 @@ void main() {
         ],
       );
 
-      testeur.binding.handleAppLifecycleStateChanged(
-        AppLifecycleState.resumed,
-      );
+      testeur.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await testeur.pumpAndSettle();
 
       expect(session.demandes.length, 2);
@@ -451,7 +450,11 @@ void main() {
     await testeur.pumpAndSettle();
     expect(session.demandes.length, 1);
 
-    await testeur.fling(find.text('1 pièce au cabinet'), const Offset(0, 320), 1000);
+    await testeur.fling(
+      find.text('1 pièce au cabinet'),
+      const Offset(0, 320),
+      1000,
+    );
     await testeur.pumpAndSettle();
 
     expect(session.demandes.length, 2);
@@ -471,10 +474,95 @@ void main() {
       await testeur.pumpAndSettle();
       expect(session.demandes.length, 1);
 
-      await testeur.fling(find.text('Pas de réseau'), const Offset(0, 320), 1000);
+      await testeur.fling(
+        find.text('Pas de réseau'),
+        const Offset(0, 320),
+        1000,
+      );
       await testeur.pumpAndSettle();
 
       expect(session.demandes.length, 2);
     },
   );
+
+  // ══ Retrouver une pièce ═══════════════════════════════════════════════════
+  //
+  // ⚠️ L'ADHÉRENT NE CHERCHE PAS UNE LIGNE, IL CHERCHE UNE FACTURE. « La
+  // quittance ENEO de septembre » : un émetteur et un mois. C'est exactement ce
+  // sur quoi porte le filtre — et le mois n'est porté par aucun champ du
+  // serveur, il est calculé à l'affichage, donc il a fallu l'ajouter
+  // explicitement à la recherche.
+  group('Retrouver une pièce dans l\'historique', () {
+    Historique beaucoup() => Historique(
+      pieces: [
+        for (var i = 1; i <= 10; i++)
+          piece(
+            identifiant: 'P$i',
+            deposeLe: '2026-0${i > 9 ? 9 : i}-12T09:00:00',
+            emetteur: i == 3 ? 'ENEO' : 'Fournisseur $i',
+          ),
+      ],
+    );
+
+    testWidgets('le champ ne paraît pas sur une liste courte', (testeur) async {
+      await poser(
+        testeur,
+        historique: Historique(
+          pieces: [piece(identifiant: 'A', deposeLe: '2026-09-12T09:00:00')],
+        ),
+      );
+      await testeur.pumpAndSettle();
+
+      expect(find.byKey(const Key('champ-de-recherche')), findsNothing);
+    });
+
+    testWidgets('« eneo » trouve la quittance, et elle seule', (testeur) async {
+      await poser(testeur, historique: beaucoup());
+      await testeur.pumpAndSettle();
+
+      await testeur.enterText(
+        find.byKey(const Key('champ-de-recherche')),
+        'eneo',
+      );
+      await testeur.pumpAndSettle();
+
+      expect(find.text('ENEO'), findsOneWidget);
+      expect(find.text('Fournisseur 1'), findsNothing);
+    });
+
+    testWidgets('on cherche par MOIS, qui n\'est dans aucun champ', (
+      testeur,
+    ) async {
+      // ⚠️ Le mois est calculé à l'affichage. Sans l'avoir ajouté à la
+      // recherche, « mars » n'aurait rien rendu — alors que l'écran l'écrit en
+      // titre de section.
+      await poser(testeur, historique: beaucoup());
+      await testeur.pumpAndSettle();
+
+      await testeur.enterText(
+        find.byKey(const Key('champ-de-recherche')),
+        'mars',
+      );
+      await testeur.pumpAndSettle();
+
+      expect(find.byKey(const Key('rien-ne-correspond')), findsNothing);
+      expect(find.text('ENEO'), findsOneWidget);
+    });
+
+    testWidgets('rien trouvé ne se dit JAMAIS « aucune pièce remise »', (
+      testeur,
+    ) async {
+      await poser(testeur, historique: beaucoup());
+      await testeur.pumpAndSettle();
+
+      await testeur.enterText(
+        find.byKey(const Key('champ-de-recherche')),
+        'introuvable',
+      );
+      await testeur.pumpAndSettle();
+
+      expect(find.byKey(const Key('rien-ne-correspond')), findsOneWidget);
+      expect(find.text('Aucune pièce remise'), findsNothing);
+    });
+  });
 }

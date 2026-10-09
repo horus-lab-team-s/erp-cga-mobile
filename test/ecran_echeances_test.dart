@@ -243,10 +243,7 @@ void main() {
     );
     await testeur.pumpAndSettle();
 
-    expect(
-      find.textContaining('19 autres périodes en retard'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('19 autres périodes en retard'), findsOneWidget);
   });
 
   testWidgets('Le retard se dit en jours, sur la carte', (testeur) async {
@@ -259,29 +256,28 @@ void main() {
     expect(find.textContaining('En retard de 582 jours'), findsOneWidget);
   });
 
-  testWidgets(
-    'L\'explication est repliée, et se déplie sur demande',
-    (testeur) async {
-      // ⚠️ Dépliée d'office, cinq cartes font un mur de texte que personne ne
-      // lit. Absente, l'adhérent ignore ce que « CNPS » veut dire.
-      const texte =
-          'Les cotisations de sécurité sociale de vos employés : retraite, '
-          'prestations familiales, accidents du travail.';
-      await poser(
-        testeur,
-        echeancier: Echeancier(
-          echeances: [echeance(deQuoi: texte, retard: 'Majorations.')],
-        ),
-      );
-      await testeur.pumpAndSettle();
+  testWidgets('L\'explication est repliée, et se déplie sur demande', (
+    testeur,
+  ) async {
+    // ⚠️ Dépliée d'office, cinq cartes font un mur de texte que personne ne
+    // lit. Absente, l'adhérent ignore ce que « CNPS » veut dire.
+    const texte =
+        'Les cotisations de sécurité sociale de vos employés : retraite, '
+        'prestations familiales, accidents du travail.';
+    await poser(
+      testeur,
+      echeancier: Echeancier(
+        echeances: [echeance(deQuoi: texte, retard: 'Majorations.')],
+      ),
+    );
+    await testeur.pumpAndSettle();
 
-      expect(find.text(texte), findsNothing);
-      await testeur.tap(find.byKey(const Key('expliquer-CNPS')));
-      await testeur.pumpAndSettle();
-      expect(find.text(texte), findsOneWidget);
-      expect(find.text('Majorations.'), findsOneWidget);
-    },
-  );
+    expect(find.text(texte), findsNothing);
+    await testeur.tap(find.byKey(const Key('expliquer-CNPS')));
+    await testeur.pumpAndSettle();
+    expect(find.text(texte), findsOneWidget);
+    expect(find.text('Majorations.'), findsOneWidget);
+  });
 
   testWidgets('Une session expirée demande de se reconnecter, et le signale', (
     testeur,
@@ -338,16 +334,10 @@ void main() {
       // ⚠️ L'adhérent a réglé ailleurs — guichet, Mobile Money, virement — et
       // il en apporte la preuve. L'application ne sait pas encaisser, et le
       // serveur non plus pour un adhérent : il n'existe ni permission ni route.
-      await poser(
-        testeur,
-        echeancier: Echeancier(echeances: [echeance()]),
-      );
+      await poser(testeur, echeancier: Echeancier(echeances: [echeance()]));
       await testeur.pumpAndSettle();
 
-      expect(
-        find.textContaining("J'ai déjà payé"),
-        findsOneWidget,
-      );
+      expect(find.textContaining("J'ai déjà payé"), findsOneWidget);
       expect(find.text('Payer'), findsNothing);
       expect(find.textContaining('Payer maintenant'), findsNothing);
     });
@@ -420,10 +410,7 @@ void main() {
         });
         await testeur.pumpAndSettle();
 
-        expect(
-          find.textContaining('est arrivée au cabinet'),
-          findsOneWidget,
-        );
+        expect(find.textContaining('est arrivée au cabinet'), findsOneWidget);
         expect(find.textContaining('Inutile de la reprendre'), findsOneWidget);
       },
     );

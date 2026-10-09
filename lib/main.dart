@@ -12,6 +12,8 @@ import 'domaine/file_d_attente.dart';
 import 'domaine/prise_de_vue.dart';
 import 'marque.dart';
 import 'ecrans/coquille.dart';
+import 'ecrans/offre.dart';
+import 'ecrans/souscrire.dart';
 import 'ecrans/connexion.dart';
 import 'ecrans/ouverture.dart';
 
@@ -47,6 +49,12 @@ class ApplicationCga extends StatefulWidget {
 }
 
 class _EtatDeLApplication extends State<ApplicationCga> {
+  /// Vrai quand le visiteur a demandé la connexion. ⚠️ Distinct de
+  /// `_connecte` : on peut vouloir entrer sans y être encore.
+  bool _veutSeConnecter = false;
+
+  final _navigateur = GlobalKey<NavigatorState>();
+
   late final ClientApi _client = ClientApi(
     base: Uri.parse(ClientApi.adresseParDefaut),
   );
@@ -92,6 +100,9 @@ class _EtatDeLApplication extends State<ApplicationCga> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      // ⚠️ Une clé de navigateur : l'écran de l'offre pousse la souscription
+      // depuis un rappel qui n'a pas de contexte sous la main.
+      navigatorKey: _navigateur,
       title: 'CGA Broad Range',
       debugShowCheckedModeBanner: false,
       // ⚠️ LES COULEURS VIENNENT DU LOGO DU CABINET, pas d'une graine choisie
@@ -116,10 +127,37 @@ class _EtatDeLApplication extends State<ApplicationCga> {
           priseDeVue: _priseDeVue!,
           remettre: Remise(_client).remettre,
           quandDeconnecte: () => setState(() => _connecte = false),
+          tableau: _client,
+          fichiers: _client,
         ),
-        (_, false) => EcranDeConnexion(
+        // ⚠️ L'APPLICATION NE S'OUVRE PLUS SUR UN MUR DE CONNEXION.
+        //
+        // Elle commençait par demander des identifiants. Or le compte NAÎT de
+        // la souscription réglée : le cabinet envoie le lien d'accès une fois
+        // le paiement validé. Exiger un compte pour voir l'offre demandait
+        // d'avoir acheté pour savoir ce qu'on achète.
+        //
+        // Un visiteur voit donc d'abord ce que le cabinet propose, et peut
+        // souscrire sans compte — le serveur l'a toujours permis, ces routes
+        // sont publiques. La connexion reste à un geste, dans la barre.
+        (_, false) when _veutSeConnecter => EcranDeConnexion(
           session: _client,
           quandConnecte: () => setState(() => _connecte = true),
+          // ⚠️ Le chemin du retour. Sans lui, « Se connecter » était une porte
+          // qui se referme : l'écran est SUBSTITUÉ à l'offre, pas empilé
+          // dessus, donc ni flèche ni bouton système ne ramenaient en arrière.
+          quandRetour: () => setState(() => _veutSeConnecter = false),
+          demanderUnLien: _client.demanderUnLienDeReinitialisation,
+        ),
+        (_, false) => EcranOffre(
+          servicePublic: _client,
+          quandSeConnecter: () => setState(() => _veutSeConnecter = true),
+          quandSouscrire: (service) => _navigateur.currentState?.push(
+            MaterialPageRoute<void>(
+              builder: (_) =>
+                  EcranSouscrire(servicePublic: _client, service: service),
+            ),
+          ),
         ),
       },
     );

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../composants/carte.dart';
+import '../marque.dart';
 import '../domaine/echeance.dart';
 import '../domaine/prise_de_vue.dart';
 import '../domaine/preuve.dart';
@@ -117,19 +119,19 @@ class _EtatDesEcheances extends State<EcranEcheances>
       // conclut que rien n'a été pris. Il recommence.
       Preuve.recue => (
         'Preuve envoyée pour ${e.periode}. Le cabinet la vérifie ; '
-        'la carte passe à la période suivante.',
+            'la carte passe à la période suivante.',
         false,
       ),
       Preuve.refusee => (
         'Le cabinet ne peut pas rattacher cette preuve : l\'obligation est '
-        'peut-être déjà déposée, ou la preuve déjà envoyée.',
+            'peut-être déjà déposée, ou la preuve déjà envoyée.',
         true,
       ),
       Preuve.sessionExpiree => ('Session expirée. Reconnectez-vous.', true),
       Preuve.indisponible => (
         'Votre quittance est arrivée au cabinet, mais nous n\'avons pas pu dire '
-        'ce qu\'elle règle. Inutile de la reprendre en photo : appelez votre '
-        'chargé de clientèle.',
+            'ce qu\'elle règle. Inutile de la reprendre en photo : appelez votre '
+            'chargé de clientèle.',
         true,
       ),
     };
@@ -228,7 +230,15 @@ class _Liste extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+    // ⚠️ La barre du bas flotte : la dernière échéance finirait dessous.
+    padding: EdgeInsets.fromLTRB(
+      Marque.espace4,
+      Marque.espace4,
+      Marque.espace4,
+      // ⚠️ `…De(context)` et non la constante : la barre flotte AU-DESSUS de
+      // l'encart système, que la constante seule ne couvre pas.
+      Marque.espaceSousLaBarreDe(context),
+    ),
     children: [
       _Verdict(echeancier: echeancier),
       const SizedBox(height: 22),
@@ -257,7 +267,6 @@ class _Verdict extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final couleurs = Theme.of(context).colorScheme;
     final periodes = echeancier.periodesEnRetard;
     final grave = periodes > 0;
 
@@ -271,45 +280,11 @@ class _Verdict extends StatelessWidget {
             'Vos prochaines échéances sont listées ci-dessous.',
           );
 
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: grave ? couleurs.errorContainer : couleurs.primaryContainer,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            grave ? Icons.warning_amber_rounded : Icons.check_circle_outline,
-            color: grave
-                ? couleurs.onErrorContainer
-                : couleurs.onPrimaryContainer,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            phrase,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              color: grave
-                  ? couleurs.onErrorContainer
-                  : couleurs.onPrimaryContainer,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            detail,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color:
-                  (grave
-                          ? couleurs.onErrorContainer
-                          : couleurs.onPrimaryContainer)
-                      .withValues(alpha: 0.85),
-              height: 1.4,
-            ),
-          ),
-        ],
-      ),
+    return Chapeau(
+      grave: grave,
+      icone: grave ? Icons.warning_amber_rounded : Icons.check_circle_outline,
+      titre: phrase,
+      detail: detail,
     );
   }
 }
@@ -339,20 +314,30 @@ class _EtatDeLaCarte extends State<_Carte> {
     final couleurs = Theme.of(context).colorScheme;
     final alerte = e.etat.demandeUnGeste;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: couleurs.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: alerte ? couleurs.error : couleurs.outlineVariant,
-          width: alerte ? 1.4 : 1,
-        ),
-      ),
+    // ⚠️ L'ALERTE SE DIT PAR UN BANDEAU, PLUS PAR UN CADRE ROUGE.
+    //
+    // La carte entière était cerclée de rouge épaissi dès qu'une échéance
+    // demandait un geste. Sur un dossier qui en compte plusieurs, l'écran
+    // devenait une suite de cadres rouges : tout crie, donc plus rien ne se
+    // distingue. Le bandeau latéral se repère aussi vite et laisse la carte
+    // lisible. Le mot reste, juste en dessous — la couleur ne porte jamais
+    // seule l'information.
+    return Carte(
+      padding: EdgeInsets.zero,
+      ton: alerte ? TonDeCarte.alerte : TonDeCarte.neutre,
+      // ⚠️ Relief de LISTE : huit échéances portant chacune l'ombre pleine
+      // faisaient vibrer l'écran. Voir `ReliefDeCarte`.
+      relief: ReliefDeCarte.liste,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
+            padding: const EdgeInsets.fromLTRB(
+              Marque.espace4,
+              Marque.espace4,
+              Marque.espace4,
+              0,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -363,60 +348,51 @@ class _EtatDeLaCarte extends State<_Carte> {
                     color: couleurs.onSurface,
                   ),
                 ),
-                const SizedBox(height: 3),
+                const SizedBox(height: Marque.espace1),
                 Text(
                   e.periode,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: couleurs.onSurfaceVariant,
                   ),
                 ),
-                const SizedBox(height: 10),
-                // ⚠️ L'état en MOTS, et la couleur seulement en renfort : la
-                // règle du dossier de design, la couleur ne porte jamais seule
-                // une information.
-                Row(
-                  children: [
-                    Icon(
-                      alerte
-                          ? Icons.error_outline
-                          : e.etat == EtatPourLAdherent.preuveEnvoyee
-                          ? Icons.hourglass_top_outlined
-                          : e.etat.close
-                          ? Icons.task_alt
-                          : Icons.schedule_outlined,
-                      size: 17,
-                      color: alerte ? couleurs.error : couleurs.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        alerte
-                            ? '${e.etat.libelle} de ${e.jours} jour${e.jours > 1 ? "s" : ""}'
-                            : e.etat.libelle,
-                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          color: alerte
-                              ? couleurs.error
-                              : couleurs.onSurfaceVariant,
-                          fontWeight: alerte
-                              ? FontWeight.w600
-                              : FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                  ],
+                const SizedBox(height: Marque.espace3),
+                // ⚠️ L'ÉTAT EN ÉTIQUETTE, ET NON EN PHRASE ROUGE PLEINE LARGEUR.
+                //
+                // Vu sur l'appareil : le bandeau latéral, l'icône et la phrase
+                // disaient tous les trois la même alerte, en rouge, sur chaque
+                // carte. Une page de retards devenait un mur rouge, où plus rien
+                // ne se distinguait. L'étiquette garde le MOT et l'icône — la
+                // couleur ne porte donc toujours pas seule l'information — mais
+                // à la taille d'un état, pas d'un titre.
+                Etiquette(
+                  alerte
+                      ? '${e.etat.libelle} de ${e.jours} jour'
+                            '${e.jours > 1 ? "s" : ""}'
+                      : e.etat.libelle,
+                  couleur: alerte ? couleurs.error : null,
+                  icone: alerte
+                      ? Icons.error_outline
+                      : e.etat == EtatPourLAdherent.preuveEnvoyee
+                      ? Icons.hourglass_top_outlined
+                      : e.etat.close
+                      ? Icons.task_alt
+                      : Icons.schedule_outlined,
                 ),
                 if (e.autresPeriodesEnRetard > 0) ...[
-                  const SizedBox(height: 8),
+                  const SizedBox(height: Marque.espace2),
                   // ⚠️ Ne jamais taire ce nombre. Un adhérent qui règle la carte
                   // affichée et croit en avoir fini se trompe d'autant de mois.
+                  //
+                  // ⚠️ En encre douce et non en rouge : c'est une PRÉCISION sur
+                  // l'alerte que l'étiquette vient de donner, pas une seconde
+                  // alerte. En rouge, elle doublait le cri.
                   Text(
                     'Et ${e.autresPeriodesEnRetard} autre'
                     '${e.autresPeriodesEnRetard > 1 ? "s" : ""} période'
                     '${e.autresPeriodesEnRetard > 1 ? "s" : ""} en retard '
                     'derrière celle-ci.',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: couleurs.error,
-                      height: 1.35,
+                      color: couleurs.onSurfaceVariant,
                     ),
                   ),
                 ],
@@ -435,12 +411,15 @@ class _EtatDeLaCarte extends State<_Carte> {
           // serveur non plus pour un adhérent.
           if (alerte)
             Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
+              padding: const EdgeInsets.fromLTRB(
+                Marque.espace4,
+                Marque.espace3,
+                Marque.espace4,
+                0,
+              ),
               child: FilledButton.tonalIcon(
                 key: Key('jai-paye-${e.codeObligation}'),
-                onPressed: widget.enCours
-                    ? null
-                    : () => widget.jaiPaye(e),
+                onPressed: widget.enCours ? null : () => widget.jaiPaye(e),
                 icon: widget.enCours
                     ? const SizedBox(
                         width: 16,
@@ -451,7 +430,7 @@ class _EtatDeLaCarte extends State<_Carte> {
                 label: Text(
                   widget.enCours
                       ? 'Envoi en cours…'
-                      : 'J\'ai déjà payé — envoyer la quittance',
+                      : 'J\'ai déjà payé : envoyer la quittance',
                 ),
               ),
             ),

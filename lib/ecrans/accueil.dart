@@ -1,7 +1,12 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../marque.dart';
+
+import '../composants/carte.dart';
+import '../composants/porte_de_l_historique.dart';
 import '../domaine/depot.dart';
 import '../ports/service_de_session.dart';
 import '../domaine/file_d_attente.dart';
@@ -24,6 +29,8 @@ class EcranAccueil extends StatefulWidget {
     required this.remettre,
     required this.quandDeconnecte,
     required this.dossiers,
+    this.ouvrirLHistorique,
+    this.compteurEnAttente,
   });
 
   final ServiceDeSession session;
@@ -37,6 +44,28 @@ class EcranAccueil extends StatefulWidget {
 
   final VoidCallback quandDeconnecte;
 
+  /// Ouvre l'historique de tout ce qui a déjà été remis au cabinet.
+  ///
+  /// ⚠️ AJOUTÉ LE 27 SEPTEMBRE, ET LA RAISON EST GÊNANTE : cet historique
+  /// existait depuis des semaines, complet, avec la pièce jointe consultable —
+  /// et son SEUL point d'entrée était une tuile tout en bas de l'accueil.
+  /// C'est-à-dire précisément la section que la barre du bas recouvrait. Le
+  /// défaut de mise en page ne cachait pas trois tuiles décoratives : il
+  /// cachait la porte d'un écran entier, et personne ne pouvait le savoir.
+  ///
+  /// L'écran des justificatifs est le bon endroit : c'est l'onglet de ce que
+  /// j'envoie, et « ce que j'ai déjà envoyé » y répond à un pas.
+  ///
+  /// `null` : la carte ne s'affiche pas — les dossiers ne sont pas encore lus.
+  final VoidCallback? ouvrirLHistorique;
+
+  /// Combien de pièces attendent encore, pour qui veut l'afficher ailleurs.
+  ///
+  /// ⚠️ La barre du bas porte un compteur sur le bouton de dépôt. Sans ce
+  /// relais, elle devrait relire la file pour son compte, et l'on aurait deux
+  /// lectures du même état pouvant se contredire à l'écran.
+  final ValueNotifier<int>? compteurEnAttente;
+
   /// Les dossiers du compte, lus UNE FOIS par la coquille.
   ///
   /// ⚠️ Cet écran les relisait pour son compte, et les deux autres aussi : trois
@@ -45,18 +74,50 @@ class EcranAccueil extends StatefulWidget {
   final List<String> dossiers;
 
   @override
-  State<EcranAccueil> createState() => _EtatDeLAccueil();
+  State<EcranAccueil> createState() => EtatDeLAccueil();
 }
 
-class _EtatDeLAccueil extends State<EcranAccueil> {
+/// ⚠️ L'ÉTAT EST PUBLIC, ET C'EST VOULU : la barre du bas déclenche la prise de
+/// vue quand l'onglet est déjà ouvert (voir `_BoutonDeDepot`). Sans cela, l'écran
+/// portait son propre bouton flottant, et l'adhérent voyait DEUX appareils photo
+/// à trois centimètres l'un de l'autre, sans savoir lequel faisait quoi.
+class EtatDeLAccueil extends State<EcranAccueil> with WidgetsBindingObserver {
   List<Depot> _enAttente = const [];
   List<Depot> _refuses = const [];
   bool _envoiEnCours = false;
+  Timer? _reprise;
+
+  /// ⚠️ TOUTES LES 30 SECONDES, ET PAS PLUS SOUVENT.
+  ///
+  /// La file ne part pas toute seule sans cela, et l'écran promettait pourtant
+  /// qu'elle partirait. Trente secondes : assez court pour qu'un adhérent qui
+  /// retrouve le réseau le voie partir sous ses yeux, assez long pour ne pas
+  /// réveiller la radio du téléphone en boucle sur un forfait compté.
+  static const cadenceDeReprise = Duration(seconds: 30);
 
   @override
   void initState() {
     super.initState();
-    _relire();
+    WidgetsBinding.instance.addObserver(this);
+    _relire().then((_) => _envoyerDiscretement());
+    _reprise = Timer.periodic(cadenceDeReprise, (_) => _envoyerDiscretement());
+  }
+
+  @override
+  void dispose() {
+    _reprise?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// ⚠️ LE RETOUR DE L'APPLICATION EST LE MOMENT LE PLUS UTILE.
+  ///
+  /// On photographie une facture dans une boutique sans réseau, on range le
+  /// téléphone, et l'on ressort dans la rue où la 3G revient. C'est à cet
+  /// instant-là qu'il faut réessayer, pas trente secondes plus tard.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState etat) {
+    if (etat == AppLifecycleState.resumed) _envoyerDiscretement();
   }
 
   Future<void> _relire() async {
@@ -67,6 +128,7 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
       _enAttente = enAttente;
       _refuses = refuses;
     });
+    widget.compteurEnAttente?.value = enAttente.length;
   }
 
   Future<void> _sortir() async {
@@ -74,7 +136,8 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
     widget.quandDeconnecte();
   }
 
-  Future<void> _photographier() async {
+  /// Ouvre l'appareil photo, range la pièce, et rafraîchit la liste.
+  Future<void> photographier() async {
     final dossier = await _quelDossier();
     if (dossier == null || !mounted) return;
     final depot = await widget.priseDeVue.pour(dossier);
@@ -89,6 +152,40 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Enregistrée. Elle partira toute seule.')),
     );
+    // ⚠️ « Elle partira toute seule » : c'est ici que cela devient vrai.
+    await _envoyerDiscretement();
+  }
+
+  /// Tente de vider la file SANS RIEN DIRE.
+  ///
+  /// ─────────────────────────────────────────────────────────────────────────
+  /// ⚠️ POURQUOI EN SILENCE, ET POURQUOI CETTE MÉTHODE EXISTE.
+  ///
+  /// Constaté le 27 septembre sur un téléphone réel : une pièce photographiée
+  /// restait sur l'appareil indéfiniment. L'écran annonçait « elles partiront
+  /// dès que le réseau le permet, vous pouvez fermer », mais RIEN n'envoyait :
+  /// le seul déclencheur était le nuage de la barre du haut, que personne n'a
+  /// de raison d'aller chercher puisqu'on vient de lui dire de ne rien faire.
+  /// Un adhérent fermait l'application en croyant sa facture remise.
+  ///
+  /// L'envoi n'échoue pas : il attend. Pas de réseau est l'état NORMAL de ce
+  /// produit, pas une anomalie — d'où le silence. Le bouton, lui, parle encore,
+  /// parce qu'on y a appuyé exprès et qu'une absence de réponse inquiéterait.
+  ///
+  /// Le seul cas qui rompt le silence est la session expirée : la file garde
+  /// ses pièces, mais plus rien ne partira tant que l'adhérent n'est pas
+  /// revenu, et il faut donc le lui dire.
+  /// ─────────────────────────────────────────────────────────────────────────
+  Future<void> _envoyerDiscretement() async {
+    if (_envoiEnCours || _enAttente.isEmpty || !mounted) return;
+    setState(() => _envoiEnCours = true);
+    final vidage = await widget.file.vider(widget.remettre);
+    if (!mounted) return;
+    setState(() => _envoiEnCours = false);
+    await widget.priseDeVue.effacerLesCopiesDevenuesInutiles();
+    await _relire();
+    if (!mounted) return;
+    if (vidage.sessionAExpire) widget.quandDeconnecte();
   }
 
   /// Le dossier auquel rattacher la pièce.
@@ -162,7 +259,6 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
 
   @override
   Widget build(BuildContext context) {
-    final couleurs = Theme.of(context).colorScheme;
     final prete = widget.dossiers.isNotEmpty;
     return Scaffold(
       appBar: AppBar(
@@ -194,16 +290,29 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
       body: RefreshIndicator(
         onRefresh: _relire,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 110),
+          padding: EdgeInsets.fromLTRB(
+            Marque.espace4,
+            Marque.espace4,
+            Marque.espace4,
+            // ⚠️ `…De(context)` et non la constante : la barre flotte AU-DESSUS de
+            // l'encart système, que la constante seule ne couvre pas.
+            Marque.espaceSousLaBarreDe(context),
+          ),
           children: [
             _Verdict(
               enAttente: _enAttente.length,
               aReprendre: _refuses.length,
               dossier: prete
-                  ? (widget.dossiers.length == 1 ? widget.dossiers.single : null)
+                  ? (widget.dossiers.length == 1
+                        ? widget.dossiers.single
+                        : null)
                   : null,
               sansDossier: !prete,
             ),
+            if (widget.ouvrirLHistorique != null) ...[
+              const SizedBox(height: 14),
+              PorteDeLHistorique(surAppui: widget.ouvrirLHistorique!),
+            ],
             if (_enAttente.isNotEmpty) ...[
               const SizedBox(height: 26),
               const _TitreDeSection(
@@ -233,15 +342,6 @@ class _EtatDeLAccueil extends State<EcranAccueil> {
             ],
           ],
         ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        key: const Key('bouton-photographier'),
-        onPressed: prete ? _photographier : null,
-        backgroundColor: prete ? couleurs.primary : couleurs.surfaceContainer,
-        foregroundColor: prete ? couleurs.onPrimary : couleurs.onSurfaceVariant,
-        tooltip: 'Photographier une pièce',
-        shape: const CircleBorder(),
-        child: const Icon(Icons.photo_camera_rounded, size: 26),
       ),
     );
   }
@@ -297,15 +397,26 @@ class _Verdict extends StatelessWidget {
         Icons.replay_outlined,
         true,
       ),
+      // ⚠️ CETTE PHRASE PARLE DE LA FILE DU TÉLÉPHONE, ET D'ELLE SEULE.
+      //
+      // Elle disait « Le cabinet a tout reçu. Rien ne vous attend. » Sur le
+      // téléphone, en parcours réel, l'onglet d'à côté — l'accueil — annonçait
+      // au même instant « Il manque 3 justificatifs ». Les deux étaient vrais
+      // chacun de son côté : la file était vide, et le cabinet attendait trois
+      // pièces jamais photographiées. Mais « rien ne vous attend » affirmait
+      // ce que cet écran ne peut pas savoir. Il dit maintenant ce qu'il sait :
+      // tout ce qui a été photographié ICI est parti.
       (_, _, 0) => (
         'Tout est parti',
-        'Le cabinet a tout reçu. Rien ne vous attend.',
+        'Toutes les pièces photographiées sur ce téléphone ont été remises '
+            'au cabinet. Ce qu\'il attend encore est sur l\'accueil.',
         Icons.check_circle_outline,
         false,
       ),
       (_, _, final n) => (
         n == 1 ? 'Une pièce attend' : '$n pièces attendent',
-        'Elles partiront dès que le réseau le permet. Vous pouvez fermer.',
+        'Elles repartent toutes seules dès que le réseau revient, tant que '
+            'cette application est ouverte.',
         Icons.schedule_outlined,
         false,
       ),
@@ -321,7 +432,7 @@ class _Verdict extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(18, 20, 18, 20),
       decoration: BoxDecoration(
         color: fond,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(Marque.rayonCarte),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -433,21 +544,14 @@ class _Vignette extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final couleurs = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: couleurs.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: alerte
-              ? couleurs.error.withValues(alpha: 0.45)
-              : couleurs.outlineVariant,
-        ),
-      ),
+    return Carte(
+      padding: const EdgeInsets.all(Marque.espace3),
+      ton: alerte ? TonDeCarte.alerte : TonDeCarte.neutre,
+      relief: ReliefDeCarte.liste,
       child: Row(
         children: [
           ClipRRect(
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(Marque.rayonBloc),
             child: SizedBox(
               width: 58,
               height: 58,

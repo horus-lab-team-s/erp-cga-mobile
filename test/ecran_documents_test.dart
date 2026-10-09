@@ -77,6 +77,7 @@ void main() {
   Future<SessionFeinte> poser(
     WidgetTester testeur, {
     Documents documents = const Documents(),
+    VoidCallback? ouvrirLHistorique,
   }) async {
     final s = SessionFeinte(documents: documents);
     await testeur.pumpWidget(
@@ -86,6 +87,7 @@ void main() {
           session: s,
           dossiers: const ['M081234567890P'],
           quandSessionExpire: () {},
+          ouvrirLHistorique: ouvrirLHistorique,
         ),
       ),
     );
@@ -119,7 +121,9 @@ void main() {
     expect(find.text('TVA du mois'), findsOneWidget);
     expect(find.text('1 340 000 F'), findsOneWidget);
     expect(
-      find.textContaining('février 2024 · Impôts (DGI) · déposé le 15 mars 2024'),
+      find.textContaining(
+        'février 2024 · Impôts (DGI) · déposé le 15 mars 2024',
+      ),
       findsOneWidget,
     );
   });
@@ -192,5 +196,162 @@ void main() {
 
     expect(find.text('Aucun accusé de dépôt'), findsOneWidget);
     expect(find.text('Pas de réseau'), findsNothing);
+  });
+
+  // ══ L'autre sens ══════════════════════════════════════════════════════════
+  //
+  // ⚠️ CET ÉCRAN NE MONTRAIT QU'UNE MOITIÉ DES DOCUMENTS DE L'ADHÉRENT.
+  //
+  // Les accusés déposés PAR le cabinet y étaient ; les pièces remises AU
+  // cabinet vivaient sur un écran distinct auquel rien ne menait depuis ici.
+  // Or « Documents » est l'onglet où l'on cherche un document, quel qu'en soit
+  // le sens : y taire la moitié revenait à la cacher.
+  group('La porte vers les pièces remises', () {
+    testWidgets('mène bien à l\'historique', (testeur) async {
+      var ouvert = 0;
+      await poser(
+        testeur,
+        documents: Documents(documents: [document()]),
+        ouvrirLHistorique: () => ouvert++,
+      );
+      await testeur.pumpAndSettle();
+
+      expect(find.byKey(const Key('vers-historique')), findsOneWidget);
+      await testeur.tap(find.byKey(const Key('vers-historique')));
+      await testeur.pumpAndSettle();
+      expect(ouvert, 1);
+    });
+  });
+
+  // ══ La recherche ══════════════════════════════════════════════════════════
+  //
+  // ⚠️ SOIXANTE-CINQ ACCUSÉS SUR UN ÉCRAN DE TÉLÉPHONE. Mesuré sur le jeu réel
+  // du dossier de démonstration : retrouver celui de février 2024 demandait
+  // quatorze glissements. La liste existait, l'information aussi ; c'est
+  // l'accès qui manquait.
+  group('Retrouver un accusé', () {
+    List<DocumentRecu> beaucoup() => [
+      for (var i = 1; i <= 10; i++)
+        document(
+          numero: 'DGI-2024-${i.toString().padLeft(2, '0')}-00$i',
+          periode: i == 2 ? 'février 2024' : 'mois $i 2024',
+          titre: i.isEven ? 'TVA du mois' : 'Acompte',
+        ),
+    ];
+
+    testWidgets('le champ ne paraît pas sur une liste courte', (testeur) async {
+      await poser(
+        testeur,
+        documents: Documents(documents: [document(), document()]),
+      );
+      await testeur.pumpAndSettle();
+
+      // ⚠️ Sur deux accusés, on lit plus vite qu'on ne tape.
+      expect(find.byKey(const Key('champ-de-recherche')), findsNothing);
+    });
+
+    testWidgets('il paraît dès que la liste dépasse un écran', (testeur) async {
+      await poser(testeur, documents: Documents(documents: beaucoup()));
+      await testeur.pumpAndSettle();
+
+      expect(find.byKey(const Key('champ-de-recherche')), findsOneWidget);
+    });
+
+    testWidgets('« fevrier » sans accent trouve « février »', (testeur) async {
+      // ⚠️ LE CAS QUI JUSTIFIE TOUT LE FICHIER `recherche.dart`. On ne va pas
+      // chercher la touche des accents pour filtrer une liste.
+      await poser(testeur, documents: Documents(documents: beaucoup()));
+      await testeur.pumpAndSettle();
+
+      await testeur.enterText(
+        find.byKey(const Key('champ-de-recherche')),
+        'fevrier',
+      );
+      await testeur.pumpAndSettle();
+
+      expect(find.text('DGI-2024-02-0022'), findsNothing);
+      expect(find.textContaining('février 2024'), findsOneWidget);
+      expect(find.text('1 sur 10'), findsOneWidget);
+    });
+
+    testWidgets('rien trouvé ne se dit JAMAIS « aucun accusé »', (
+      testeur,
+    ) async {
+      await poser(testeur, documents: Documents(documents: beaucoup()));
+      await testeur.pumpAndSettle();
+
+      await testeur.enterText(
+        find.byKey(const Key('champ-de-recherche')),
+        'quelque chose qui n\'existe pas',
+      );
+      await testeur.pumpAndSettle();
+
+      expect(find.byKey(const Key('rien-ne-correspond')), findsOneWidget);
+      expect(
+        find.textContaining('Vos autres documents sont toujours là'),
+        findsOneWidget,
+      );
+      // ⚠️ Le message des listes vides ne doit PAS apparaître : il dirait que
+      // le cabinet n'a rien déposé, et ferait appeler en urgence.
+      expect(find.text('Aucun accusé de dépôt'), findsNothing);
+    });
+
+    testWidgets('« Tout revoir » rend la liste entière', (testeur) async {
+      await poser(testeur, documents: Documents(documents: beaucoup()));
+      await testeur.pumpAndSettle();
+
+      await testeur.enterText(
+        find.byKey(const Key('champ-de-recherche')),
+        'introuvable',
+      );
+      await testeur.pumpAndSettle();
+      await testeur.tap(find.byKey(const Key('tout-revoir')));
+      await testeur.pumpAndSettle();
+
+      expect(find.byKey(const Key('rien-ne-correspond')), findsNothing);
+      expect(find.text('10 accusés de dépôt'), findsOneWidget);
+    });
+  });
+
+  // ⚠️ LE CAS QUI TIENT LE CONTRÔLEUR DE TEXTE.
+  //
+  // La première écriture du champ fabriquait son `TextEditingController` dans
+  // `build`. La liste se reconstruisant à chaque frappe, le champ recevait un
+  // contrôleur neuf à chaque lettre et perdait la région de composition — donc
+  // la saisie prédictive et les accents composés du clavier Android. Un champ
+  // fait pour chercher « février » qui casse sur les accents.
+  //
+  // Ce cas frappe lettre par lettre et vérifie que le texte s'accumule, que le
+  // curseur reste au bout, et que le filtre suit.
+  testWidgets('le champ garde ce qu\'on tape, lettre après lettre', (
+    testeur,
+  ) async {
+    await poser(
+      testeur,
+      documents: Documents(
+        documents: [
+          for (var i = 1; i <= 10; i++)
+            document(
+              numero: 'DGI-2024-${i.toString().padLeft(2, '0')}-00$i',
+              periode: i == 2 ? 'février 2024' : 'mois $i 2024',
+            ),
+        ],
+      ),
+    );
+    await testeur.pumpAndSettle();
+
+    final champ = find.byKey(const Key('champ-de-recherche'));
+    for (final morceau in ['f', 'fe', 'fev', 'fevr']) {
+      await testeur.enterText(champ, morceau);
+      await testeur.pumpAndSettle();
+      final saisi = testeur.widget<TextField>(champ).controller!;
+      expect(saisi.text, morceau);
+      expect(
+        saisi.selection.baseOffset,
+        morceau.length,
+        reason: 'Le curseur doit rester au bout de ce qui est tapé.',
+      );
+    }
+    expect(find.textContaining('février 2024'), findsOneWidget);
   });
 }

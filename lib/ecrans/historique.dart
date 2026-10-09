@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 
+import '../composants/carte.dart';
+import '../composants/champ_de_recherche.dart';
+import '../domaine/recherche.dart';
 import '../domaine/piece_remise.dart';
 import '../ports/service_de_session.dart';
+import '../ports/service_des_fichiers.dart';
+import 'visionneuse.dart';
 
 /// Ce que le cabinet détient, et où chaque pièce en est.
 ///
@@ -30,9 +35,14 @@ class EcranHistorique extends StatefulWidget {
     required this.session,
     required this.dossiers,
     required this.quandSessionExpire,
+    this.fichiers,
   });
 
   final ServiceDeSession session;
+
+  /// De quoi ouvrir le document d'une pièce. `null` : les lignes ne se
+  /// touchent pas.
+  final ServiceDesFichiers? fichiers;
 
   /// Les dossiers du compte. ⚠️ Passés par l'accueil, qui les a déjà lus : les
   /// relire ici ferait un deuxième aller-retour pour la même réponse, sur un
@@ -65,9 +75,30 @@ class EcranHistorique extends StatefulWidget {
 /// liste a vieilli. Personne ne s'en doute.
 class _EtatDeLHistorique extends State<EcranHistorique>
     with WidgetsBindingObserver {
+  /// Ce qui est tapé dans le champ de recherche. ⚠️ Tenu par l'écran : la
+  /// liste se reconstruit à chaque frappe.
+  String _recherche = '';
+
   Historique? _historique;
   bool _lectureEnCours = true;
   late String _dossier = widget.dossiers.first;
+
+  /// Ouvre le document de la pièce, tel que le serveur le conserve. `null`
+  /// quand l'écran n'a pas de quoi lire les fichiers.
+  void Function(PieceRemise)? get _ouvrir {
+    final fichiers = widget.fichiers;
+    if (fichiers == null) return null;
+    return (piece) => Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => EcranVisionneuse(
+          fichiers: fichiers,
+          piece: piece.identifiant,
+          titre: piece.nomDuFichier ?? piece.identifiant,
+          quandSessionExpire: widget.quandSessionExpire,
+        ),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -174,7 +205,12 @@ class _EtatDeLHistorique extends State<EcranHistorique>
                 'fois arrivés au cabinet.',
             icone: Icons.inbox_outlined,
           ),
-          (_, final Historique h) => _Liste(historique: h),
+          (_, final Historique h) => _Liste(
+            historique: h,
+            surOuvrir: _ouvrir,
+            recherche: _recherche,
+            surRecherche: (v) => setState(() => _recherche = v),
+          ),
         },
       ),
     );
@@ -183,9 +219,23 @@ class _EtatDeLHistorique extends State<EcranHistorique>
 
 /// La liste, groupée par mois.
 class _Liste extends StatelessWidget {
-  const _Liste({required this.historique});
+  const _Liste({
+    required this.historique,
+    required this.surOuvrir,
+    required this.recherche,
+    required this.surRecherche,
+  });
 
   final Historique historique;
+  final String recherche;
+  final ValueChanged<String> surRecherche;
+
+  /// À partir de combien de pièces le champ de recherche apparaît. Même seuil
+  /// et même raison que pour les accusés : au-delà, la liste dépasse un écran.
+  static const seuilDeRecherche = 8;
+
+  /// `null` : les lignes ne se touchent pas.
+  final void Function(PieceRemise)? surOuvrir;
 
   @override
   Widget build(BuildContext context) {
@@ -194,8 +244,22 @@ class _Liste extends StatelessWidget {
     // pièces d'août ? ». Grouper par jour ferait trente titres pour trente
     // lignes ; ne pas grouper du tout laisserait une liste plate où l'on perd
     // la frontière entre deux exercices.
+    // ⚠️ LE FILTRE PORTE SUR CE QUE L'ADHÉRENT RECONNAÎT D'UNE PIÈCE : le nom
+    // de l'émetteur — « ENEO », « CAMWATER » —, la référence du document, et le
+    // mois, parce que c'est ainsi qu'il en parle au téléphone. Le mois est
+    // ajouté explicitement : il n'est porté par aucun champ, il est CALCULÉ à
+    // l'affichage, et sans lui « septembre » ne rendrait rien.
+    final retenus = [
+      for (final piece in historique.pieces)
+        if (correspond([
+          piece.emetteur,
+          piece.referenceDocument,
+          _mois(piece.deposeLe),
+        ], recherche))
+          piece,
+    ];
     final parMois = <String, List<PieceRemise>>{};
-    for (final piece in historique.pieces) {
+    for (final piece in retenus) {
       parMois.putIfAbsent(_mois(piece.deposeLe), () => []).add(piece);
     }
 
@@ -203,6 +267,22 @@ class _Liste extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
       children: [
         _Bilan(historique: historique),
+        if (historique.pieces.length >= seuilDeRecherche) ...[
+          const SizedBox(height: 14),
+          ChampDeRecherche(
+            valeur: recherche,
+            surChangement: surRecherche,
+            invite: 'Émetteur, référence, mois…',
+          ),
+        ],
+        // ⚠️ « Rien ne correspond », JAMAIS « aucune pièce remise » : voir
+        // l'en-tête d'`Historique`. Dire à quelqu'un qui a tout déposé que son
+        // dossier est vide est la pire chose que cet écran puisse faire.
+        if (retenus.isEmpty)
+          RienNeCorrespond(
+            recherche: recherche,
+            surEffacer: () => surRecherche(''),
+          ),
         for (final entree in parMois.entries) ...[
           const SizedBox(height: 24),
           _TitreDeMois(texte: entree.key, combien: entree.value.length),
@@ -210,7 +290,10 @@ class _Liste extends StatelessWidget {
           for (final piece in entree.value)
             Padding(
               padding: const EdgeInsets.only(bottom: 10),
-              child: _LignePiece(piece: piece),
+              child: _LignePiece(
+                piece: piece,
+                surOuvrir: surOuvrir == null ? null : () => surOuvrir!(piece),
+              ),
             ),
         ],
       ],
@@ -230,41 +313,17 @@ class _Bilan extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final couleurs = Theme.of(context).colorScheme;
     final total = historique.pieces.length;
     final prises = historique.prisesEnCompte;
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: couleurs.primaryContainer,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            '$total pièce${total > 1 ? "s" : ""} au cabinet',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              color: couleurs.onPrimaryContainer,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            // ⚠️ Les deux cas sont écrits en toutes lettres plutôt qu'avec un
-            // « 0 » : « aucune n'a encore été traitée » est une phrase, « 0
-            // traitée » est un relevé. La première dit à l'adhérent qu'il n'a
-            // rien à faire, la seconde le laisse se demander si c'est normal.
-            prises == 0
-                ? 'Aucune n\'a encore été traitée. Le cabinet les reprend par lot.'
-                : '$prises déjà prise${prises > 1 ? "s" : ""} en compte par le cabinet.',
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              color: couleurs.onPrimaryContainer.withValues(alpha: 0.82),
-              height: 1.4,
-            ),
-          ),
-        ],
-      ),
+    return Chapeau(
+      titre: '$total pièce${total > 1 ? "s" : ""} au cabinet',
+      // ⚠️ Les deux cas sont écrits en toutes lettres plutôt qu'avec un
+      // « 0 » : « aucune n'a encore été traitée » est une phrase, « 0
+      // traitée » est un relevé. La première dit à l'adhérent qu'il n'a
+      // rien à faire, la seconde le laisse se demander si c'est normal.
+      detail: prises == 0
+          ? 'Aucune n\'a encore été traitée. Le cabinet les reprend par lot.'
+          : '$prises déjà prise${prises > 1 ? "s" : ""} en compte par le cabinet.',
     );
   }
 }
@@ -290,9 +349,9 @@ class _TitreDeMois extends StatelessWidget {
         const SizedBox(width: 8),
         Text(
           '$combien',
-          style: Theme.of(context).textTheme.labelMedium?.copyWith(
-            color: couleurs.onSurfaceVariant,
-          ),
+          style: Theme.of(
+            context,
+          ).textTheme.labelMedium?.copyWith(color: couleurs.onSurfaceVariant),
         ),
         const SizedBox(width: 10),
         Expanded(child: Divider(color: couleurs.outlineVariant, height: 1)),
@@ -303,9 +362,14 @@ class _TitreDeMois extends StatelessWidget {
 
 /// Une pièce, avec ce que le cabinet en a tiré.
 class _LignePiece extends StatelessWidget {
-  const _LignePiece({required this.piece});
+  const _LignePiece({required this.piece, this.surOuvrir});
 
   final PieceRemise piece;
+
+  /// Ouvre le document. ⚠️ La ligne ENTIÈRE se touche : c'est le geste que
+  /// tout le monde essaie sur une liste de documents, et une petite icône
+  /// « voir » en bout de ligne ne se trouve qu'au troisième essai.
+  final VoidCallback? surOuvrir;
 
   @override
   Widget build(BuildContext context) {
@@ -315,13 +379,10 @@ class _LignePiece extends StatelessWidget {
       if (piece.referenceDocument != null) piece.referenceDocument!,
       if (piece.canal != 'MOBILE') _canal(piece.canal),
     ];
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: couleurs.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: couleurs.outlineVariant),
-      ),
+    return Carte(
+      key: Key('piece-${piece.identifiant}'),
+      relief: ReliefDeCarte.liste,
+      surAppui: surOuvrir,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -369,9 +430,9 @@ class _LignePiece extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               detail.join(' · '),
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: couleurs.onSurfaceVariant,
-              ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: couleurs.onSurfaceVariant),
             ),
           ],
           const SizedBox(height: 12),
@@ -512,7 +573,8 @@ const _moisEnFrancais = [
   'Décembre',
 ];
 
-String _mois(DateTime date) => '${_moisEnFrancais[date.month - 1]} ${date.year}';
+String _mois(DateTime date) =>
+    '${_moisEnFrancais[date.month - 1]} ${date.year}';
 
 String _jour(DateTime date) =>
     '${date.day} ${_moisEnFrancais[date.month - 1].toLowerCase()}';

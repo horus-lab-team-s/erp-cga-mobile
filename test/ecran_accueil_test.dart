@@ -156,6 +156,7 @@ void main() {
     Future<Reponse> Function(Depot)? remettre,
     VoidCallback? quandDeconnecte,
     List<String> dossiers = const ['M081234567890P'],
+    VoidCallback? ouvrirLHistorique,
   }) async {
     await testeur.pumpWidget(
       MaterialApp(
@@ -169,6 +170,7 @@ void main() {
           // ⚠️ Les dossiers viennent désormais de la coquille, qui les lit une
           // fois pour les trois écrans. L'accueil ne les relit plus.
           dossiers: dossiers,
+          ouvrirLHistorique: ouvrirLHistorique,
         ),
       ),
     );
@@ -182,7 +184,14 @@ void main() {
       // ⚠️ L'adhérent ne vient pas lire un tableau de bord : il vient savoir si
       // ses pièces sont parties. La phrase conclut à sa place.
       expect(find.text('Tout est parti'), findsOneWidget);
-      expect(find.textContaining('Le cabinet a tout reçu'), findsOneWidget);
+      expect(
+        find.textContaining('photographiées sur ce téléphone'),
+        findsOneWidget,
+      );
+      // ⚠️ Et JAMAIS « rien ne vous attend » : l'écran ne connaît que sa
+      // propre file, pas ce que le cabinet attend encore. Sur le téléphone,
+      // l'accueil disait « Il manque 3 justificatifs » au même moment.
+      expect(find.textContaining('Rien ne vous attend'), findsNothing);
     });
 
     testWidgets('une pièce en attente dit quoi en attendre', (testeur) async {
@@ -190,7 +199,17 @@ void main() {
       await poser(testeur);
 
       expect(find.text('Une pièce attend'), findsOneWidget);
-      expect(find.textContaining('Vous pouvez fermer'), findsOneWidget);
+      // ⚠️ LA PHRASE A CHANGÉ LE 27 SEPTEMBRE, ET CE N'EST PAS DU STYLE.
+      //
+      // Elle disait « vous pouvez fermer ». C'était faux : rien n'envoyait la
+      // file, et l'adhérent fermait l'application en croyant sa facture
+      // remise. Elle dit maintenant à quelle condition les pièces partent.
+      expect(find.textContaining('toutes seules'), findsOneWidget);
+      expect(
+        find.textContaining('cette application est ouverte'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Vous pouvez fermer'), findsNothing);
     });
 
     testWidgets('plusieurs pièces se comptent dans la phrase', (testeur) async {
@@ -285,20 +304,17 @@ void main() {
       expect(find.text('M081234567890P'), findsOneWidget);
     });
 
-    testWidgets('sans dossier connu, on ne laisse pas photographier', (
+    testWidgets("l'écran ne porte plus son propre appareil photo", (
       testeur,
     ) async {
-      // ⚠️ Le bouton resterait actif, l'adhérent prendrait sa photo, et le
-      // refus n'arriverait qu'après — quand la facture est rangée.
+      // ⚠️ UN SEUL APPAREIL PHOTO DANS L'APPLICATION. L'écran portait un bouton
+      // flottant, et la barre du bas a reçu son bouton central : l'adhérent
+      // voyait deux appareils photo à trois centimètres l'un de l'autre, sans
+      // savoir lequel faisait quoi. Le geste vit désormais dans la barre, qui
+      // le déclenche quand l'onglet est déjà ouvert (voir `coquille_test`).
       await poser(testeur, dossiers: const []);
 
-      final bouton = testeur.widget<FloatingActionButton>(
-        find.byKey(const Key('bouton-photographier')),
-      );
-      expect(bouton.onPressed, isNull);
-      // ⚠️ L'étiquette de lecture d'écran survit à la disparition du mot :
-      // ce qui est évident à l'œil ne l'est pas à l'oreille.
-      expect(bouton.tooltip, 'Photographier une pièce');
+      expect(find.byType(FloatingActionButton), findsNothing);
       expect(find.text('Aucun dossier à votre nom'), findsOneWidget);
     });
 
@@ -327,8 +343,53 @@ void main() {
       expect(bouton.onPressed, isNull);
     });
 
-    testWidgets('vide la file et le dit', (testeur) async {
+    testWidgets('vide la file et le dit, après un envoi sans réseau', (
+      testeur,
+    ) async {
+      // ⚠️ LE PREMIER ENVOI ÉCHOUE EXPRÈS.
+      //
+      // Depuis que la file part toute seule à l'ouverture, une file qu'on
+      // laisse pleine se vide avant qu'on ait pu appuyer. Le cas réel du
+      // bouton est donc celui-ci : la tentative automatique n'a pas eu de
+      // réseau, l'adhérent en retrouve un, et appuie.
       await file.ajouter(depot('A'));
+      var appels = 0;
+      await poser(
+        testeur,
+        remettre: (_) async {
+          appels++;
+          return appels == 1 ? Reponse.indisponible : Reponse.accepte;
+        },
+      );
+
+      expect(appels, 1, reason: 'La tentative automatique a bien eu lieu.');
+      expect(find.text('Une pièce attend'), findsOneWidget);
+
+      await testeur.tap(find.byKey(const Key('bouton-envoyer')));
+      await pousserJusquAuBandeau(testeur);
+
+      expect(appels, 2);
+      expect(find.text('1 pièce envoyée.'), findsOneWidget);
+      expect(find.text('Tout est parti'), findsOneWidget);
+    });
+
+    testWidgets('la file part toute seule, sans qu\'on appuie sur rien', (
+      testeur,
+    ) async {
+      // ─────────────────────────────────────────────────────────────────────
+      // ⚠️ LE CAS QUI MANQUAIT, ET QUI A COÛTÉ UNE PIÈCE PERDUE.
+      //
+      // Constaté le 27 septembre sur un téléphone réel : une pièce
+      // photographiée restait sur l'appareil indéfiniment. Le seul déclencheur
+      // d'envoi était le nuage de la barre du haut — que personne n'a de raison
+      // d'aller chercher, puisque l'écran venait de dire que les pièces
+      // partiraient toutes seules.
+      //
+      // Aucun cas ne couvrait le départ automatique, parce qu'aucun cas ne
+      // couvrait l'ABSENCE de geste. Celui-ci n'appuie sur rien.
+      // ─────────────────────────────────────────────────────────────────────
+      await file.ajouter(depot('A'));
+      await file.ajouter(depot('B'));
       var appels = 0;
       await poser(
         testeur,
@@ -338,12 +399,44 @@ void main() {
         },
       );
 
-      await testeur.tap(find.byKey(const Key('bouton-envoyer')));
       await pousserJusquAuBandeau(testeur);
 
-      expect(appels, 1);
-      expect(find.text('1 pièce envoyée.'), findsOneWidget);
+      expect(appels, 2, reason: 'Les deux pièces sont parties.');
       expect(find.text('Tout est parti'), findsOneWidget);
+      expect(await file.enAttente(), isEmpty);
+    });
+
+    testWidgets('elle repart quand on revient dans l\'application', (
+      testeur,
+    ) async {
+      // ─────────────────────────────────────────────────────────────────────
+      // ⚠️ LE MOMENT LE PLUS UTILE DE TOUTE LA FILE.
+      //
+      // On photographie une facture dans une boutique sans réseau, on range le
+      // téléphone, on ressort dans la rue où la 3G revient, et l'on rouvre
+      // l'application. C'est à cet instant qu'il faut réessayer — pas à la
+      // prochaine reprise, pas au prochain appui.
+      // ─────────────────────────────────────────────────────────────────────
+      await file.ajouter(depot('A'));
+      var appels = 0;
+      await poser(
+        testeur,
+        remettre: (_) async {
+          appels++;
+          // Pas de réseau au départ ; il revient ensuite.
+          return appels == 1 ? Reponse.indisponible : Reponse.accepte;
+        },
+      );
+
+      expect(appels, 1);
+      expect(find.text('Une pièce attend'), findsOneWidget);
+
+      testeur.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await pousserJusquAuBandeau(testeur);
+
+      expect(appels, 2, reason: 'Le retour a relancé l\'envoi.');
+      expect(find.text('Tout est parti'), findsOneWidget);
+      expect(await file.enAttente(), isEmpty);
     });
 
     testWidgets('sans réseau, rassure au lieu d\'alarmer', (testeur) async {
@@ -395,4 +488,42 @@ void main() {
     });
   });
 
+  // ══ La porte de l'historique ══════════════════════════════════════════════
+  //
+  // ⚠️ POURQUOI CETTE CARTE EXISTE, ET POURQUOI ELLE ARRIVE SI TARD.
+  //
+  // L'historique des pièces remises — avec le document de chacune — était
+  // complet depuis des semaines. Son SEUL point d'entrée était une tuile tout
+  // en bas de l'accueil : exactement la section que la barre du bas recouvrait.
+  // Le défaut de mise en page du 27 septembre ne cachait pas trois tuiles
+  // décoratives, il cachait la porte d'un écran entier.
+  group('Tout ce que j\'ai envoyé', () {
+    testWidgets('la porte est là, et elle mène bien quelque part', (
+      testeur,
+    ) async {
+      var ouvert = 0;
+      await poser(testeur, ouvrirLHistorique: () => ouvert++);
+
+      expect(find.byKey(const Key('vers-historique')), findsOneWidget);
+      expect(find.text("Tout ce que j'ai envoyé"), findsOneWidget);
+      // ⚠️ La pièce jointe est annoncée : c'est elle qu'on vient chercher, pas
+      // une ligne de journal.
+      expect(find.textContaining('le document de chacune'), findsOneWidget);
+
+      await testeur.tap(find.byKey(const Key('vers-historique')));
+      await testeur.pumpAndSettle();
+      expect(ouvert, 1);
+    });
+
+    testWidgets('elle se tait tant que le dossier n\'est pas connu', (
+      testeur,
+    ) async {
+      // La coquille ne passe rien tant qu'elle n'a pas lu les dossiers : une
+      // porte qui ouvre sur un écran incapable de rien demander vaut moins que
+      // pas de porte du tout.
+      await poser(testeur);
+
+      expect(find.byKey(const Key('vers-historique')), findsNothing);
+    });
+  });
 }

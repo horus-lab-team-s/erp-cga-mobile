@@ -105,7 +105,12 @@ MonEntreprise entreprise({List<Signalement> signalements = const []}) =>
       ],
       'signalements': [
         for (final s in signalements)
-          {'nature': 'ADRESSE', 'libelle': s.libelle, 'message': s.message, 'le': s.le},
+          {
+            'nature': 'ADRESSE',
+            'libelle': s.libelle,
+            'message': s.message,
+            'le': s.le,
+          },
       ],
     });
 
@@ -115,7 +120,8 @@ void main() {
   // de flottaison n'est pas construit par la liste. Les cas échouaient alors
   // sur « aucun widget trouvé » pour du texte qui existe bel et bien.
   setUp(() {
-    final vue = TestWidgetsFlutterBinding.instance.platformDispatcher.views.first;
+    final vue =
+        TestWidgetsFlutterBinding.instance.platformDispatcher.views.first;
     vue.physicalSize = const Size(1000, 3000);
     vue.devicePixelRatio = 1.0;
   });
@@ -161,14 +167,8 @@ void main() {
       // jeu d'essai, et l'écran doit mettre les deux en français.
       expect(find.text('1er juin 2022'), findsNWidgets(2));
       expect(find.text('2022-06-01'), findsNothing);
-      expect(
-        find.textContaining('Vous facturez la TVA'),
-        findsOneWidget,
-      );
-      expect(
-        find.text('Vous la facturez et la reversez'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('Vous facturez la TVA'), findsOneWidget);
+      expect(find.text('Vous la facturez et la reversez'), findsOneWidget);
     });
 
     testWidgets('nomme l\'interlocuteur, avec son rôle en français', (

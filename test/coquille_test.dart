@@ -6,6 +6,7 @@ import 'package:cga_mobile/domaine/document_recu.dart';
 import 'package:cga_mobile/domaine/echeance.dart';
 import 'package:cga_mobile/domaine/mon_entreprise.dart';
 import 'package:cga_mobile/domaine/preuve.dart';
+import 'package:cga_mobile/domaine/depot.dart';
 import 'package:cga_mobile/domaine/file_d_attente.dart';
 import 'package:cga_mobile/domaine/piece_remise.dart';
 import 'package:cga_mobile/domaine/prise_de_vue.dart';
@@ -15,6 +16,8 @@ import 'package:cga_mobile/ports/appareil_photo.dart';
 import 'package:cga_mobile/ports/service_de_session.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'soutien/tableau_feint.dart';
 
 /// ─────────────────────────────────────────────────────────────────────────────
 /// CE QUE CES CAS TIENNENT
@@ -97,6 +100,14 @@ class AppareilFeint implements AppareilPhoto {
   Future<String?> photographier() async => null;
 }
 
+/// Un dépôt dans la file, pour éprouver le compteur de la barre.
+Depot depotDEssai(String id) => Depot(
+  identifiant: id,
+  dossier: 'M081234567890P',
+  cheminDuFichier: '/tmp/$id.jpg',
+  prisLe: DateTime(2026, 9, 27),
+);
+
 void main() {
   late Directory racine;
   late FileDAttente file;
@@ -130,6 +141,7 @@ void main() {
           priseDeVue: prise,
           remettre: (_) async => Reponse.accepte,
           quandDeconnecte: () {},
+          tableau: TableauFeint(),
         ),
       ),
     );
@@ -140,35 +152,117 @@ void main() {
   testWidgets('Les cinq destinations sont là, et nommées', (testeur) async {
     await poser(testeur);
 
-    // ⚠️ Cinq, et c'est le maximum : au-delà, une barre Material se tasse et
-    // les libellés deviennent illisibles sur un téléphone étroit. Le prochain
-    // écran obligera à choisir ce qui descend d'un rang.
+    // ⚠️ Cinq, et c'est le maximum : au-delà, une barre du bas se tasse et les
+    // libellés deviennent illisibles sur un téléphone étroit. Le prochain écran
+    // obligera à choisir ce qui descend d'un rang.
+    expect(find.byKey(const Key('onglet-accueil')), findsOneWidget);
     expect(find.byKey(const Key('onglet-deposer')), findsOneWidget);
     expect(find.byKey(const Key('onglet-echeances')), findsOneWidget);
-    expect(find.byKey(const Key('onglet-pieces')), findsOneWidget);
     expect(find.byKey(const Key('onglet-entreprise')), findsOneWidget);
     expect(find.byKey(const Key('onglet-documents')), findsOneWidget);
-    expect(find.byType(NavigationDestination), findsNWidgets(5));
+    for (final libelle in [
+      'Accueil',
+      'Échéances',
+      'Déposer',
+      'Documents',
+      'Entreprise',
+    ]) {
+      expect(
+        find.text(libelle),
+        findsWidgets,
+        reason: 'le mot accompagne l\'icône',
+      );
+    }
+  });
+
+  testWidgets('Le dépôt est mis en avant : plus grand que les autres onglets', (
+    testeur,
+  ) async {
+    // ⚠️ L'adhérent ouvre l'application une facture à la main : le dépôt est ce
+    // qu'il vient faire, le reste est de la consultation. Cinq onglets de même
+    // taille ne le disaient pas.
+    await poser(testeur);
+    final depot = testeur.getSize(find.byKey(const Key('onglet-deposer')));
+    // Une cible ronde et large : le pouce la trouve sans viser. Les recommandations
+    // d'accessibilité demandent 48 points ; le geste principal en prend davantage.
+    expect(depot.width, depot.height, reason: 'un rond, pas un onglet de plus');
+    expect(depot.height, greaterThanOrEqualTo(56));
+    final icones = testeur.widgetList<Icon>(find.byType(Icon)).toList();
+    final appareil = icones.firstWhere(
+      (i) => i.icon == Icons.photo_camera_rounded,
+    );
+    final maison = icones.firstWhere((i) => i.icon == Icons.home);
+    expect(appareil.size, greaterThan(maison.size!));
+    // ⚠️ ET IL EST AU CENTRE DE LA BARRE, sous le pouce : c'est la demande du
+    // cabinet, et ce qui distingue le geste principal des quatre écrans qu'on
+    // consulte. Son centre tombe à moins de deux points du milieu de l'écran.
+    final centre = testeur.getCenter(find.byKey(const Key('onglet-deposer')));
+    final milieu =
+        testeur.view.physicalSize.width / testeur.view.devicePixelRatio / 2;
+    expect((centre.dx - milieu).abs(), lessThan(2));
+  });
+
+  testWidgets(
+    "Sur son propre onglet, le bouton central déclenche l'appareil photo",
+    (testeur) async {
+      // ⚠️ Sans cela, le bouton le plus visible de l'application ne ferait RIEN
+      // sur l'écran où l'adhérent l'attend le plus. Ici, aucun dossier n'est
+      // rattaché : la prise de vue s'arrête et le dit, au lieu de se taire.
+      await poser(testeur, session: SessionFeinte(dossiers: const []));
+      await testeur.tap(find.byKey(const Key('onglet-deposer')));
+      await testeur.pumpAndSettle();
+      await testeur.tap(find.byKey(const Key('onglet-deposer')));
+      await testeur.pumpAndSettle();
+
+      expect(
+        find.text('Aucun dossier ouvert à votre nom. Voyez avec le cabinet.'),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('Chaque destination reste touchable au pouce', (testeur) async {
+    // ⚠️ Quarante-huit points de haut au minimum : c'est le seuil des règles
+    // d'accessibilité, et la taille d'un pouce sur une dalle de six pouces. La
+    // barre a changé de forme ; ce cas empêche qu'elle s'amincisse un jour sans
+    // que personne ne le mesure.
+    await poser(testeur);
+    for (final cle in [
+      'onglet-accueil',
+      'onglet-echeances',
+      'onglet-deposer',
+      'onglet-documents',
+      'onglet-entreprise',
+    ]) {
+      final taille = testeur.getSize(find.byKey(Key(cle)));
+      expect(taille.height, greaterThanOrEqualTo(48), reason: cle);
+      expect(taille.width, greaterThanOrEqualTo(48), reason: cle);
+    }
   });
 
   testWidgets('Chaque onglet ouvre bien son écran', (testeur) async {
     await poser(testeur);
+    // ⚠️ L'application connectée s'ouvre sur l'ACCUEIL, et non plus sur
+    // l'appareil photo : l'adhérent veut d'abord savoir où il en est.
+    expect(find.byKey(const Key('salutation')), findsOneWidget);
+
+    await testeur.tap(find.byKey(const Key('onglet-deposer')));
+    await testeur.pumpAndSettle();
     expect(find.text('Mes justificatifs'), findsOneWidget);
 
     await testeur.tap(find.byKey(const Key('onglet-echeances')));
     await testeur.pumpAndSettle();
     expect(find.text('Mes échéances'), findsOneWidget);
 
-    await testeur.tap(find.byKey(const Key('onglet-pieces')));
-    await testeur.pumpAndSettle();
-    expect(find.text('Pièces remises'), findsOneWidget);
-
     await testeur.tap(find.byKey(const Key('onglet-entreprise')));
     await testeur.pumpAndSettle();
     // ⚠️ On vise le titre de l'ÉCRAN, pas n'importe quel texte : le libellé de
     // l'onglet vit dans le même arbre, et un `find.text` nu les confondrait.
     expect(
-      find.descendant(of: find.byType(AppBar), matching: find.text('Mon entreprise')),
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.text('Mon entreprise'),
+      ),
       findsOneWidget,
     );
 
@@ -189,7 +283,7 @@ void main() {
 
       await testeur.tap(find.byKey(const Key('onglet-echeances')));
       await testeur.pumpAndSettle();
-      await testeur.tap(find.byKey(const Key('onglet-pieces')));
+      await testeur.tap(find.byKey(const Key('onglet-documents')));
       await testeur.pumpAndSettle();
       await testeur.tap(find.byKey(const Key('onglet-deposer')));
       await testeur.pumpAndSettle();
@@ -218,6 +312,7 @@ void main() {
             priseDeVue: prise,
             remettre: (_) async => Reponse.accepte,
             quandDeconnecte: () {},
+            tableau: TableauFeint(),
           ),
         ),
       );
@@ -232,7 +327,10 @@ void main() {
       await testeur.pumpAndSettle();
 
       // Une fois connus, et sur le bon dossier, jamais sur une chaîne vide.
-      expect(session.demandesDEcheances, const ['M081234567890P']);
+      // ⚠️ Deux lectures désormais — l'accueil résume les échéances, l'onglet
+      // les détaille —, mais toutes sur le bon dossier.
+      expect(session.demandesDEcheances, isNotEmpty);
+      expect(session.demandesDEcheances, everyElement('M081234567890P'));
     },
   );
 
@@ -244,7 +342,7 @@ void main() {
     await poser(testeur, session: SessionFeinte(panne: true));
 
     expect(find.text('Aucun dossier à votre nom'), findsOneWidget);
-    expect(find.byType(NavigationBar), findsOneWidget);
+    expect(find.byKey(const Key('onglet-deposer')), findsOneWidget);
   });
 
   testWidgets("Changer d'onglet ne perd pas l'écran qu'on quitte", (
@@ -262,5 +360,43 @@ void main() {
 
     expect(find.byType(IndexedStack), findsOneWidget);
     expect(find.text('Mes justificatifs'), findsOneWidget);
+  });
+
+  // ══ Ce que la barre dit sans qu'on ouvre l'onglet ═════════════════════════
+  //
+  // ⚠️ UNE PIÈCE QUI ATTEND EST LA SEULE CHOSE QUE L'APPLICATION SAIT ET QUE LE
+  // SERVEUR IGNORE. Hors réseau, elle n'existe que sur ce téléphone. Rien ne la
+  // signalait tant qu'on n'ouvrait pas l'onglet du dépôt : on consultait ses
+  // échéances sans savoir qu'une facture attendait à deux écrans de là.
+  group('Le compteur du bouton de dépôt', () {
+    testWidgets('reste muet quand rien n\'attend', (testeur) async {
+      await poser(testeur);
+
+      expect(find.text('1'), findsNothing);
+      expect(find.text('9+'), findsNothing);
+    });
+
+    testWidgets('annonce ce qui attend, depuis n\'importe quel onglet', (
+      testeur,
+    ) async {
+      await file.ajouter(depotDEssai('A'));
+      await poser(testeur);
+
+      // On reste sur l'accueil : le compteur doit se voir de là.
+      expect(find.text('1'), findsOneWidget);
+    });
+
+    testWidgets(
+      's\'arrête à « 9+ », parce que trois chiffres ne se lisent pas',
+      (testeur) async {
+        for (var i = 0; i < 12; i++) {
+          await file.ajouter(depotDEssai('P$i'));
+        }
+        await poser(testeur);
+
+        expect(find.text('9+'), findsOneWidget);
+        expect(find.text('12'), findsNothing);
+      },
+    );
   });
 }

@@ -84,6 +84,7 @@ void main() {
     WidgetTester testeur,
     SessionFeinte session, {
     VoidCallback? quandConnecte,
+    VoidCallback? quandRetour,
   }) async {
     await testeur.pumpWidget(
       MaterialApp(
@@ -91,16 +92,70 @@ void main() {
         home: EcranDeConnexion(
           session: session,
           quandConnecte: quandConnecte ?? () {},
+          quandRetour: quandRetour,
         ),
       ),
     );
   }
 
+  group("Revenir à l'offre", () {
+    // ─────────────────────────────────────────────────────────────────────────
+    // ⚠️ « SE CONNECTER » ÉTAIT UNE PORTE QUI SE REFERME.
+    //
+    // L'application s'ouvre sur le catalogue depuis qu'elle a un côté public.
+    // Un visiteur qui touchait « Se connecter » par curiosité arrivait devant
+    // le mur de connexion SANS AUCUN MOYEN DE REVENIR : l'écran est substitué
+    // à l'offre et non empilé dessus, donc ni flèche ni bouton système ne le
+    // ramenaient. Il fallait tuer l'application.
+    //
+    // C'est exactement le mur que le côté public venait de supprimer.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    testWidgets('la flèche ramène au catalogue', (testeur) async {
+      var revenu = false;
+      await poser(testeur, SessionFeinte(), quandRetour: () => revenu = true);
+
+      await testeur.tap(find.byKey(const Key('retour-a-l-offre')));
+      await testeur.pumpAndSettle();
+
+      expect(revenu, isTrue);
+    });
+
+    testWidgets('le bouton « retour » du téléphone fait la même chose', (
+      testeur,
+    ) async {
+      // ⚠️ Sur Android, c'est le geste que tout le monde essaie en premier.
+      // S'il ferme l'application au lieu de revenir, le visiteur croit s'être
+      // trompé d'application.
+      var revenu = false;
+      await poser(testeur, SessionFeinte(), quandRetour: () => revenu = true);
+
+      await testeur.binding.handlePopRoute();
+      await testeur.pumpAndSettle();
+
+      expect(revenu, isTrue);
+    });
+
+    testWidgets('pas de flèche quand il n\'y a rien derrière', (testeur) async {
+      // Le cas d'une session expirée alors que l'adhérent était déjà entré :
+      // une flèche y promettrait un écran qui n'existe plus.
+      await poser(testeur, SessionFeinte());
+      expect(find.byKey(const Key('retour-a-l-offre')), findsNothing);
+    });
+  });
+
   group("Ce que l'écran montre avant toute saisie", () {
     testWidgets('le logo du cabinet, et non un titre écrit', (testeur) async {
       await poser(testeur, SessionFeinte());
 
-      final logo = testeur.widget<Image>(find.byType(Image));
+      // ⚠️ Par son étiquette, et non « la seule image de l'écran » : l'écran
+      // porte aussi une photographie, décorative, qu'un lecteur d'écran ne
+      // lit pas.
+      final logo = testeur.widget<Image>(
+        find.byWidgetPredicate(
+          (w) => w is Image && (w.semanticLabel ?? '').contains('CGA'),
+        ),
+      );
       expect(
         (logo.image as AssetImage).assetName,
         Marque.logoBlanc,
@@ -111,15 +166,143 @@ void main() {
       expect(logo.semanticLabel, contains('CGA Broad Range'));
     });
 
-    testWidgets("une seule action principale, et c'est « Entrer »", (
+    testWidgets("une seule action principale, et c'est « Se connecter »", (
+      testeur,
+    ) async {
+      await poser(testeur, SessionFeinte(), quandRetour: () {});
+
+      // ⚠️ Le § 10.7 veut UNE action principale par vue. Deux boutons pleins,
+      // et plus aucun ne se détache. « Découvrir l'offre » est à contour.
+      expect(find.byType(FilledButton), findsOneWidget);
+      expect(find.text('Se connecter'), findsOneWidget);
+    });
+
+    testWidgets('la phrase qui protège du faux conseiller', (testeur) async {
+      // ⚠️ Recopiée de la vitrine. Elle doit être SUR l'écran où l'on tape le
+      // mot de passe, pas dans une page d'aide que personne n'ouvre.
+      await poser(testeur, SessionFeinte());
+      expect(
+        find.textContaining('ne vous demandera jamais votre mot de passe'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('la photographie est muette pour un lecteur d\'écran', (
       testeur,
     ) async {
       await poser(testeur, SessionFeinte());
+      final photo = testeur.widget<Image>(
+        find.byWidgetPredicate(
+          (w) =>
+              w is Image &&
+              w.image is AssetImage &&
+              (w.image as AssetImage).assetName.contains('photos/'),
+        ),
+      );
+      expect(photo.excludeFromSemantics, isTrue);
+    });
+  });
 
-      // ⚠️ Le § 10.7 veut UNE action principale par vue. Deux boutons pleins,
-      // et plus aucun ne se détache.
-      expect(find.byType(FilledButton), findsOneWidget);
-      expect(find.text('Entrer'), findsOneWidget);
+  group('Mot de passe oublié', () {
+    Future<List<String>> ouvrir(
+      WidgetTester testeur, {
+      bool accepte = true,
+    }) async {
+      final demandes = <String>[];
+      await testeur.pumpWidget(
+        MaterialApp(
+          theme: themeClair(),
+          home: EcranDeConnexion(
+            session: SessionFeinte(),
+            quandConnecte: () {},
+            demanderUnLien: (c) async {
+              demandes.add(c);
+              return accepte;
+            },
+          ),
+        ),
+      );
+      await testeur.enterText(
+        find.byKey(const Key('champ-courriel')),
+        'jp.nkoa@batimentplus.cm',
+      );
+      await testeur.tap(find.byKey(const Key('mot-de-passe-oublie')));
+      await testeur.pumpAndSettle();
+      return demandes;
+    }
+
+    testWidgets("reprend l'adresse déjà tapée, et demande le lien", (
+      testeur,
+    ) async {
+      final demandes = await ouvrir(testeur);
+      // ⚠️ Inutile de la redemander : l'adhérent vient de la taper.
+      expect(
+        testeur
+            .widget<TextField>(find.byKey(const Key('champ-oubli')))
+            .controller!
+            .text,
+        'jp.nkoa@batimentplus.cm',
+      );
+      await testeur.tap(find.byKey(const Key('oubli-envoyer')));
+      await testeur.pumpAndSettle();
+      expect(demandes, ['jp.nkoa@batimentplus.cm']);
+    });
+
+    testWidgets('ne prétend JAMAIS qu\'un lien est parti', (testeur) async {
+      // ⚠️ Le serveur répond « pris » même pour une adresse inconnue, pour ne
+      // pas révéler qui est client. « Un lien vous a été envoyé » serait faux
+      // une fois sur deux.
+      await ouvrir(testeur);
+      await testeur.tap(find.byKey(const Key('oubli-envoyer')));
+      await testeur.pumpAndSettle();
+      expect(find.byKey(const Key('oubli-pris')), findsOneWidget);
+      expect(find.textContaining('Si un compte est ouvert'), findsOneWidget);
+      expect(find.textContaining('vous a été envoyé'), findsNothing);
+    });
+
+    testWidgets('sans réseau, le dit, et laisse réessayer', (testeur) async {
+      await ouvrir(testeur, accepte: false);
+      await testeur.tap(find.byKey(const Key('oubli-envoyer')));
+      await testeur.pumpAndSettle();
+      expect(find.byKey(const Key('oubli-echec')), findsOneWidget);
+      expect(find.byKey(const Key('oubli-pris')), findsNothing);
+      expect(find.byKey(const Key('oubli-envoyer')), findsOneWidget);
+    });
+
+    testWidgets('mène aussi à une personne, si rien n\'arrive', (
+      testeur,
+    ) async {
+      // Sans demande de lien branchée, la feuille ne montre que les moyens
+      // de joindre le chargé de clientèle : aucun champ qui ne mènerait à
+      // rien.
+      await poser(testeur, SessionFeinte());
+      await testeur.tap(find.byKey(const Key('mot-de-passe-oublie')));
+      await testeur.pumpAndSettle();
+
+      expect(find.byKey(const Key('aide-oubli')), findsOneWidget);
+      expect(find.byKey(const Key('oubli-whatsapp')), findsOneWidget);
+      expect(find.byKey(const Key('oubli-appeler')), findsOneWidget);
+      // Aucun champ de saisie dans la feuille : seulement les deux du
+      // formulaire de connexion, derrière.
+      expect(find.byType(TextField), findsNWidgets(2));
+    });
+  });
+
+  group('Pas encore adhérent', () {
+    testWidgets("mène à l'offre quand il y en a une derrière", (testeur) async {
+      var revenu = false;
+      await poser(testeur, SessionFeinte(), quandRetour: () => revenu = true);
+      // `ensureVisible` et non `scrollUntilVisible` : chaque champ de saisie
+      // porte son propre défileur, et ce dernier ne sait plus lequel choisir.
+      await testeur.ensureVisible(find.byKey(const Key('voir-l-offre')));
+      await testeur.pumpAndSettle();
+      await testeur.tap(find.byKey(const Key('voir-l-offre')));
+      expect(revenu, isTrue);
+    });
+
+    testWidgets("se tait quand il n'y a pas d'offre derrière", (testeur) async {
+      await poser(testeur, SessionFeinte());
+      expect(find.byKey(const Key('voir-l-offre')), findsNothing);
     });
 
     testWidgets('aucun message de refus tant que rien n\'a été tenté', (

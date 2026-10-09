@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Ce que l'application a le droit de joindre en clair.
+
+  ⚠️ DEPUIS ANDROID 9, UNE APPLICATION QUI VISE UN SDK RÉCENT NE PARLE PLUS EN
+  CLAIR — `targetSdk` vaut 36 ici, donc TOUT appel `http://` est refusé par le
+  système, sans message, avant même de sortir du téléphone. Sans ce fichier, la
+  version de démonstration branchée sur `http://localhost:8100` ne se connecte
+  jamais : l'écran tourne, et personne ne voit pourquoi.
+
+  ⚠️ LA PERMISSION EST DONNÉE ADRESSE PAR ADRESSE, JAMAIS EN GÉNÉRAL.
+  `cleartextTrafficPermitted="true"` à la racine rouvrirait le clair pour LA
+  PRODUCTION AUSSI : le mot de passe d'un adhérent traverserait le wifi d'un
+  cybercafé de Douala en lisible. Les trois adresses ci-dessous ne quittent
+  jamais l'appareil ou le poste du développeur :
+
+    · `localhost` / `127.0.0.1` — le tunnel `adb reverse` du téléphone branché ;
+    · `10.0.2.2`               — le poste hôte, vu depuis l'émulateur Android.
+
+  Tout le reste, à commencer par `cga-brcg.cm`, reste en HTTPS obligatoire.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+</network-security-config>

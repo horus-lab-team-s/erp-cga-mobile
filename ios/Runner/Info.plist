@@ -6,8 +6,21 @@
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<!-- ⚠️ SANS CES DEUX PHRASES, L'APPLICATION EST TUÉE PAR LE SYSTÈME.
+	     iOS n'ouvre pas l'appareil photo d'une application qui n'a pas écrit
+	     POURQUOI elle le demande : il arrête le processus sur-le-champ, avec un
+	     « SIGABRT » que rien à l'écran n'explique. Ce n'est pas un réglage de
+	     confort, c'est la condition pour que « Déposer » existe.
+
+	     ⚠️ ELLES SONT LUES PAR L'ADHÉRENT, mot pour mot, dans la fenêtre que le
+	     système affiche. Elles disent donc ce que le cabinet fait de la photo —
+	     pas « cette application a besoin de l'appareil photo ». -->
+	<key>NSCameraUsageDescription</key>
+	<string>Pour photographier vos factures et reçus, et les transmettre à votre comptable.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Pour joindre un justificatif déjà enregistré dans vos photos.</string>
 	<key>CFBundleDisplayName</key>
-	<string>Cga Mobile</string>
+	<string>CGA Broad Range</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
