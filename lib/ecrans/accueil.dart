@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../marque.dart';
 
+import '../composants/actions.dart';
 import '../composants/carte.dart';
 import '../composants/porte_de_l_historique.dart';
 import '../domaine/depot.dart';
@@ -136,11 +137,15 @@ class EtatDeLAccueil extends State<EcranAccueil> with WidgetsBindingObserver {
     widget.quandDeconnecte();
   }
 
-  /// Ouvre l'appareil photo, range la pièce, et rafraîchit la liste.
-  Future<void> photographier() async {
+  /// Ouvre l'appareil photo (ou la galerie), range la pièce, et rafraîchit la
+  /// liste.
+  Future<void> photographier({bool depuisLaGalerie = false}) async {
     final dossier = await _quelDossier();
     if (dossier == null || !mounted) return;
-    final depot = await widget.priseDeVue.pour(dossier);
+    final depot = await widget.priseDeVue.pour(
+      dossier,
+      depuisLaGalerie: depuisLaGalerie,
+    );
     if (!mounted) return;
     if (depot == null) {
       // ⚠️ Renoncer n'est pas une erreur, et n'appelle aucun message. On ferme
@@ -309,6 +314,29 @@ class EtatDeLAccueil extends State<EcranAccueil> with WidgetsBindingObserver {
                   : null,
               sansDossier: !prete,
             ),
+            // 18 octobre 2026 : l'écran ne disait que « Tout est parti ». Les deux
+            // façons de remettre une pièce sont désormais sous les yeux : la
+            // photographier, ou la prendre dans la galerie quand elle est déjà
+            // arrivée en image.
+            if (prete) ...[
+              const SizedBox(height: 14),
+              BoutonDAction(
+                key: const Key('bouton-photographier'),
+                libelle: 'Photographier une pièce',
+                icone: Icons.photo_camera_outlined,
+                surAppui: photographier,
+              ),
+              if (widget.priseDeVue.galerie != null) ...[
+                const SizedBox(height: 10),
+                BoutonDAction(
+                  key: const Key('bouton-galerie'),
+                  libelle: 'Choisir dans la galerie',
+                  icone: Icons.photo_library_outlined,
+                  secondaire: true,
+                  surAppui: () => photographier(depuisLaGalerie: true),
+                ),
+              ],
+            ],
             if (widget.ouvrirLHistorique != null) ...[
               const SizedBox(height: 14),
               PorteDeLHistorique(surAppui: widget.ouvrirLHistorique!),

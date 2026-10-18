@@ -129,6 +129,44 @@ void main() {
     });
   });
 
+  group('Depuis la galerie (18 octobre 2026)', () {
+    test("la pièce vient de la galerie, et suit la même règle", () async {
+      final appareil = AppareilFeint(cache);
+      final galerie = AppareilFeint(cache);
+      final prise = PriseDeVue(
+        appareil: appareil,
+        galerie: galerie,
+        file: file,
+        photos: photos,
+      );
+
+      final depot = await prise.pour('M081234567890P', depuisLaGalerie: true);
+
+      expect(galerie.prises, 1);
+      expect(appareil.prises, 0);
+      expect(
+        depot!.cheminDuFichier.startsWith(photos.path),
+        isTrue,
+        reason:
+            'la galerie rend, elle aussi, une copie provisoire du système : '
+            'sans copie durable, la pièce se perdrait avant sa remise',
+      );
+      expect((await file.enAttente()).single.identifiant, depot.identifiant);
+    });
+
+    test('sans galerie, rien ne se crée', () async {
+      final appareil = AppareilFeint(cache);
+
+      final depot = await avec(
+        appareil,
+      ).pour('M081234567890P', depuisLaGalerie: true);
+
+      expect(depot, isNull);
+      expect(appareil.prises, 0);
+      expect(await file.enAttente(), isEmpty);
+    });
+  });
+
   group("L'effacement des copies", () {
     test('ne touche pas à une pièce encore en attente', () async {
       final prise = avec(AppareilFeint(cache));

@@ -36,9 +36,14 @@ class PriseDeVue {
     required this.appareil,
     required this.file,
     required this.photos,
+    this.galerie,
   });
 
   final AppareilPhoto appareil;
+
+  /// La galerie, pour une pièce déjà reçue en image (18 octobre 2026). Absente,
+  /// le dépôt ne passe que par l'appareil photo.
+  final AppareilPhoto? galerie;
   final FileDAttente file;
 
   /// Où vivent les copies durables. Voisin du fichier de la file, et pour la
@@ -47,8 +52,15 @@ class PriseDeVue {
 
   /// Photographie une pièce et la met en file. Rend le dépôt créé, ou `null` si
   /// la personne a renoncé.
-  Future<Depot?> pour(String dossier) async {
-    final provisoire = await appareil.photographier();
+  ///
+  /// ⚠️ DEPUIS LA GALERIE, LA MÊME RÈGLE : copie durable, puis file. Le fichier
+  /// rendu par la galerie est, lui aussi, une copie provisoire du système.
+  Future<Depot?> pour(String dossier, {bool depuisLaGalerie = false}) async {
+    final source = depuisLaGalerie ? galerie : appareil;
+    if (source == null) {
+      return null;
+    }
+    final provisoire = await source.photographier();
     if (provisoire == null) {
       return null;
     }

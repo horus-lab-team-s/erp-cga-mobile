@@ -177,6 +177,39 @@ void main() {
     await testeur.pumpAndSettle();
   }
 
+  group('Les deux façons de remettre une pièce (18 octobre 2026)', () {
+    testWidgets('sans galerie branchée, seul l\'appareil photo est proposé', (
+      testeur,
+    ) async {
+      await poser(testeur);
+
+      expect(find.byKey(const Key('bouton-photographier')), findsOneWidget);
+      expect(find.byKey(const Key('bouton-galerie')), findsNothing);
+    });
+
+    testWidgets('la galerie remet une pièce déjà reçue en image', (
+      testeur,
+    ) async {
+      final galerie = AppareilFeint(cache);
+      prise = PriseDeVue(
+        appareil: AppareilFeint(cache),
+        galerie: galerie,
+        file: file,
+        photos: Directory('${racine.path}/photos'),
+      );
+      await poser(testeur);
+
+      await testeur.tap(find.byKey(const Key('bouton-galerie')));
+      await pousserJusquAuBandeau(testeur);
+
+      expect(galerie.prises, 1);
+      expect(
+        find.text('Enregistrée. Elle partira toute seule.'),
+        findsOneWidget,
+      );
+    });
+  });
+
   group("Le verdict, en tête d'écran", () {
     testWidgets('une file vide conclut, au lieu de compter', (testeur) async {
       await poser(testeur);

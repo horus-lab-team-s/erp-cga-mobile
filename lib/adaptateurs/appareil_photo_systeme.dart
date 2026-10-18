@@ -43,3 +43,25 @@ class AppareilPhotoDuSysteme implements AppareilPhoto {
     return pris?.path;
   }
 }
+
+/// La galerie du téléphone : la facture déjà reçue en photo, par WhatsApp ou par
+/// courriel, et qu'il serait absurde de rephotographier sur l'écran d'un autre
+/// appareil (18 octobre 2026).
+///
+/// ⚠️ La même réduction que l'appareil photo, pour la même raison : une image de
+/// la galerie peut peser autant qu'une photo prise à l'instant.
+class GalerieDuSysteme implements AppareilPhoto {
+  GalerieDuSysteme({ImagePicker? choix}) : _choix = choix ?? ImagePicker();
+
+  final ImagePicker _choix;
+
+  @override
+  Future<String?> photographier() async {
+    final pris = await _choix.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 2000,
+      imageQuality: 85,
+    );
+    return pris?.path;
+  }
+}
