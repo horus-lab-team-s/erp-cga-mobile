@@ -294,11 +294,11 @@ void main() {
       // un adhérent en retard ne le trouverait qu'en cherchant.
       await poser(testeur, espace: EspaceFeint(honoraires: honorairesDEssai()));
       // ⚠️ Remontée AU-DESSUS de la barre flottante, qui prendrait le toucher.
-    await Scrollable.ensureVisible(
-      testeur.element(find.byKey(const Key('accueil-honoraires'))),
-      alignment: 0.3,
-    );
-    await testeur.pumpAndSettle();
+      await Scrollable.ensureVisible(
+        testeur.element(find.byKey(const Key('accueil-honoraires'))),
+        alignment: 0.3,
+      );
+      await testeur.pumpAndSettle();
       await testeur.tap(find.byKey(const Key('accueil-honoraires')));
       await testeur.pumpAndSettle();
       expect(
