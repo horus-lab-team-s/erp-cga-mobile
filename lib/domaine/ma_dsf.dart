@@ -25,8 +25,8 @@ enum EtatDeMaDsf {
       'La déclaration est établie ; un second collaborateur la relit avant qu\'elle parte.',
     EtatDeMaDsf.validee =>
       'La déclaration est relue et validée ; elle part sur le portail de la DGI.',
-    EtatDeMaDsf.deposee =>
-      'La DGI a délivré son accusé. La copie déposée se consulte ici.',
+    // Sans copie quand la DSF n'est connue que par son accusé : le bouton suit `document`.
+    EtatDeMaDsf.deposee => 'La DGI a délivré son accusé de réception.',
   };
 
   /// L'avancement, pour la barre de progression : quatre étapes.
