@@ -68,6 +68,33 @@ flutter:
     - assets/marque/
     - assets/photos/
 
+  # 18 octobre 2026 (point 10) : les polices de la marque, celles de la console et de la
+  # vitrine. ⚠️ Jointes à l'application et non chargées au démarrage : aucun appel à un
+  # serveur tiers à l'ouverture, et le texte s'affiche juste sans réseau. Licence libre
+  # SIL OFL 1.1, jointe dans `assets/polices/`. Inter est le sous-ensemble latin : il
+  # couvre le français ; un caractère absent retombe sur la police du système.
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/polices/Inter-Regular.ttf
+          weight: 400
+        - asset: assets/polices/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/polices/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/polices/Inter-Bold.ttf
+          weight: 700
+    - family: Poppins
+      fonts:
+        - asset: assets/polices/Poppins-Regular.ttf
+          weight: 400
+        - asset: assets/polices/Poppins-Medium.ttf
+          weight: 500
+        - asset: assets/polices/Poppins-SemiBold.ttf
+          weight: 600
+        - asset: assets/polices/Poppins-Bold.ttf
+          weight: 700
+
   # To add assets to your application, add an assets section, like this:
   # assets:
   #   - images/a_dot_burr.jpeg

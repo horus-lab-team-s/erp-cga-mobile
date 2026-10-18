@@ -239,6 +239,13 @@ abstract final class Marque {
   /// Une pastille, une étiquette, un bouton en forme de gélule.
   static const rayonPastille = 999.0;
 
+  // ── Les polices (18 octobre 2026) ─────────────────────────────────────
+  /// Le texte courant, les montants, les champs : Inter, celle de la console.
+  static const policeTexte = 'Inter';
+
+  /// Les titres et les grands chiffres : Poppins, celle de la console.
+  static const policeTitre = 'Poppins';
+
   // ── Le dégradé de marque ──────────────────────────────────────────────
   //
   // ─────────────────────────────────────────────────────────────────────────
@@ -397,6 +404,9 @@ ThemeData _theme({
     //   · les textes courants s'aèrent (interligne 1,5) : on les lit sur un
     //     téléphone, souvent debout, souvent dehors ;
     //   · rien ne descend sous 13 px. En dessous, un texte devient un décor.
+    // 18 octobre 2026 (point 10) : Inter pour le texte, Poppins pour les titres, comme sur
+    // la console et la vitrine. Jointes à l'application (`pubspec.yaml`).
+    fontFamily: Marque.policeTexte,
     textTheme: _echelle(encre, encreDouce),
     // ⚠️ Pas de vaguelette qui s'étale sur toute la largeur d'une ligne : le
     // § 10.7 proscrit l'animation spectaculaire, et sur un téléphone d'entrée
@@ -629,6 +639,7 @@ ThemeData _theme({
 TextTheme _echelle(Color encre, Color encreDouce) => TextTheme(
   // Un montant, un chiffre qui est le sujet de l'écran.
   headlineLarge: TextStyle(
+    fontFamily: Marque.policeTitre,
     fontSize: 32,
     height: 1.15,
     fontWeight: FontWeight.w700,
@@ -636,6 +647,7 @@ TextTheme _echelle(Color encre, Color encreDouce) => TextTheme(
     color: encre,
   ),
   headlineMedium: TextStyle(
+    fontFamily: Marque.policeTitre,
     fontSize: 28,
     height: 1.18,
     fontWeight: FontWeight.w700,
@@ -643,6 +655,7 @@ TextTheme _echelle(Color encre, Color encreDouce) => TextTheme(
     color: encre,
   ),
   headlineSmall: TextStyle(
+    fontFamily: Marque.policeTitre,
     fontSize: 23,
     height: 1.25,
     fontWeight: FontWeight.w700,
@@ -651,6 +664,7 @@ TextTheme _echelle(Color encre, Color encreDouce) => TextTheme(
   ),
   // Le titre d'une section d'écran.
   titleLarge: TextStyle(
+    fontFamily: Marque.policeTitre,
     fontSize: 20,
     height: 1.28,
     fontWeight: FontWeight.w700,
@@ -659,6 +673,7 @@ TextTheme _echelle(Color encre, Color encreDouce) => TextTheme(
   ),
   // Le titre d'une carte.
   titleMedium: TextStyle(
+    fontFamily: Marque.policeTitre,
     fontSize: 16.5,
     height: 1.32,
     fontWeight: FontWeight.w600,
