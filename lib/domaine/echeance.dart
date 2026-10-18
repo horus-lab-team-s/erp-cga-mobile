@@ -44,6 +44,18 @@ enum EtatPourLAdherent {
   /// majorations.
   preuveEnvoyee,
 
+  /// Le cabinet a vérifié la quittance : le paiement est acquis. Le dépôt de la
+  /// déclaration reste l'acte du cabinet.
+  payee,
+
+  /// Sous mandat de paiement : les fonds de l'adhérent sont chez le cabinet, qui
+  /// règle l'administration (14 octobre 2026).
+  ///
+  /// ⚠️ 18 OCTOBRE 2026 : CES DEUX ÉTATS ÉTAIENT LUS « À VENIR ». L'adhérent qui
+  /// venait de régler sa CNPS par mobile money la voyait quitter la tête de liste
+  /// et rejoindre les échéances futures, comme si rien n'était fait.
+  fondsRecus,
+
   /// L'échéance n'est pas passée.
   aVenir,
 
@@ -54,6 +66,8 @@ enum EtatPourLAdherent {
   String get libelle => switch (this) {
     EtatPourLAdherent.enRetard => 'En retard',
     EtatPourLAdherent.preuveEnvoyee => 'Le cabinet vérifie votre preuve',
+    EtatPourLAdherent.payee => 'Payée',
+    EtatPourLAdherent.fondsRecus => 'Fonds reçus par le cabinet',
     EtatPourLAdherent.aVenir => 'À venir',
     EtatPourLAdherent.deposee => 'Déposée par le cabinet',
   };
@@ -70,6 +84,8 @@ enum EtatPourLAdherent {
   static EtatPourLAdherent depuisLeServeur(String? nom) => switch (nom) {
     'EN_RETARD' => EtatPourLAdherent.enRetard,
     'PREUVE_ENVOYEE' => EtatPourLAdherent.preuveEnvoyee,
+    'PAYEE' => EtatPourLAdherent.payee,
+    'FONDS_RECUS' => EtatPourLAdherent.fondsRecus,
     'A_VENIR' => EtatPourLAdherent.aVenir,
     'DEPOSEE' => EtatPourLAdherent.deposee,
     _ => EtatPourLAdherent.aVenir,

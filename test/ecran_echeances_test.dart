@@ -205,6 +205,33 @@ void main() {
     });
   });
 
+  group('Payée, ou fonds reçus (18 octobre 2026)', () {
+    test('le téléphone lit les deux états du serveur', () {
+      // ⚠️ Lus « À venir », ils faisaient glisser une CNPS tout juste réglée
+      // par mobile money parmi les échéances futures.
+      expect(
+        echeance(etat: 'FONDS_RECUS', jours: 0).etat,
+        EtatPourLAdherent.fondsRecus,
+      );
+      expect(echeance(etat: 'PAYEE', jours: 0).etat, EtatPourLAdherent.payee);
+    });
+
+    testWidgets('des fonds reçus le disent, sans rien demander', (
+      testeur,
+    ) async {
+      await poser(
+        testeur,
+        echeancier: Echeancier(
+          echeances: [echeance(etat: 'FONDS_RECUS', jours: 0)],
+        ),
+      );
+      await testeur.pumpAndSettle();
+
+      expect(find.text('Fonds reçus par le cabinet'), findsOneWidget);
+      expect(find.text('À venir'), findsNothing);
+    });
+  });
+
   group('Le verdict', () {
     testWidgets('compte les PÉRIODES en retard, et non les cartes', (
       testeur,

@@ -457,8 +457,11 @@ class _EtatDeLaCarte extends State<_Carte> {
                   couleur: alerte ? couleurs.error : null,
                   icone: alerte
                       ? Icons.error_outline
-                      : e.etat == EtatPourLAdherent.preuveEnvoyee
+                      : e.etat == EtatPourLAdherent.preuveEnvoyee ||
+                            e.etat == EtatPourLAdherent.fondsRecus
                       ? Icons.hourglass_top_outlined
+                      : e.etat == EtatPourLAdherent.payee
+                      ? Icons.task_alt
                       : e.etat.close
                       ? Icons.task_alt
                       : Icons.schedule_outlined,
@@ -682,7 +685,12 @@ class _Voie extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 10),
             child: Row(
               children: [
-                Text('À verser', style: douce),
+                // Sans appel, le montant n'est qu'estimé d'après la paie : le
+                // dire, plutôt que « à verser » à côté de « pas encore arrêté ».
+                Text(
+                  a == null ? 'Estimé d\'après votre paie' : 'À verser',
+                  style: douce,
+                ),
                 const Spacer(),
                 Text(
                   montantFcfa(montant),
@@ -720,8 +728,11 @@ class _Voie extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: Text(
-                'Le cabinet paie cette échéance pour vous. Dès qu\'il aura arrêté le montant, '
-                'vous le réglerez ici par mobile money.',
+                montant != null
+                    ? 'Le cabinet paie cette échéance pour vous. Dès qu\'il vous aura '
+                          'appelé ce montant, vous le réglerez ici par mobile money.'
+                    : 'Le cabinet paie cette échéance pour vous. Dès qu\'il aura arrêté le montant, '
+                          'vous le réglerez ici par mobile money.',
                 style: douce,
               ),
             ),
