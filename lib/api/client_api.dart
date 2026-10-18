@@ -6,6 +6,9 @@ import 'package:flutter/foundation.dart';
 import '../domaine/document_recu.dart';
 import '../domaine/echeance.dart';
 import '../domaine/file_d_attente.dart';
+import '../domaine/honoraires.dart';
+import '../domaine/ma_dsf.dart';
+import '../domaine/ma_paie.dart';
 import '../domaine/mon_entreprise.dart';
 import '../domaine/mon_mois.dart';
 import '../domaine/offre.dart';
@@ -14,6 +17,7 @@ import '../domaine/souscription.dart';
 import '../domaine/suivi.dart';
 import '../domaine/vitrine.dart';
 import '../domaine/preuve.dart';
+import '../ports/service_de_l_espace.dart';
 import '../ports/service_de_session.dart';
 import '../ports/service_des_fichiers.dart';
 import '../ports/service_du_tableau_de_bord.dart';
@@ -44,7 +48,8 @@ class ClientApi
         ServiceDeSession,
         ServicePublic,
         ServiceDuTableauDeBord,
-        ServiceDesFichiers {
+        ServiceDesFichiers,
+        ServiceDeLEspace {
   ClientApi({required this.base, Uri? vitrine})
     : vitrine = vitrine ?? Uri.parse(adresseDeLaVitrineParDefaut);
 
@@ -980,6 +985,220 @@ class ClientApi
         return const FichierLu(sessionAExpire: true);
       }
       if (reponse.statusCode == HttpStatus.notFound) {
+        await reponse.drain<void>();
+        return const FichierLu(introuvable: true);
+      }
+      if (reponse.statusCode != HttpStatus.ok) {
+        await reponse.drain<void>();
+        return const FichierLu(serveurJoignable: false);
+      }
+      final octets = await consolidateHttpClientResponseBytes(
+        reponse,
+      ).timeout(const Duration(seconds: 60));
+      return FichierLu(
+        octets: octets,
+        type: reponse.headers.contentType?.mimeType,
+      );
+    } on Object {
+      return const FichierLu(serveurJoignable: false);
+    }
+  }
+
+  // ── L'espace adhérent : honoraires, DSF, paie (18 octobre 2026) ─────────────
+
+  /// Une lecture JSON authentifiée, traduite en `Lecture`.
+  Future<Lecture<T>> _lireEnJson<T>(
+    String chemin,
+    T Function(Object json) lire,
+  ) async {
+    try {
+      final requete = await _client.getUrl(base.resolve(chemin));
+      _poserLaSession(requete);
+      final reponse = await requete.close().timeout(
+        const Duration(seconds: 15),
+      );
+      final corps = await reponse.transform(utf8.decoder).join();
+      if (reponse.statusCode == HttpStatus.unauthorized) {
+        return const Lecture.sessionExpiree();
+      }
+      if (reponse.statusCode != HttpStatus.ok) {
+        return const Lecture.injoignable();
+      }
+      return Lecture.lue(lire(jsonDecode(corps) as Object));
+    } on Object {
+      return const Lecture.injoignable();
+    }
+  }
+
+  @override
+  Future<Lecture<MesHonoraires>> mesHonoraires(String dossier) => _lireEnJson(
+    '/souscription/honoraires/${Uri.encodeComponent(dossier)}',
+    (json) => MesHonoraires.depuis(json as Map<String, dynamic>),
+  );
+
+  @override
+  Future<DemandeDeDebit> demanderLeDebit({
+    required String dossier,
+    required String periode,
+    required String telephone,
+  }) async {
+    try {
+      final requete = await _client.postUrl(
+        base.resolve(
+          '/souscription/honoraires/${Uri.encodeComponent(dossier)}/paiement-en-ligne',
+        ),
+      );
+      _poserLaSession(requete);
+      requete.headers.contentType = ContentType.json;
+      requete.write(jsonEncode({'periode': periode, 'telephone': telephone}));
+      final reponse = await requete.close().timeout(
+        const Duration(seconds: 30),
+      );
+      final corps = await reponse.transform(utf8.decoder).join();
+      Object? json;
+      try {
+        json = jsonDecode(corps);
+      } on FormatException {
+        json = null;
+      }
+      final detail = json is Map<String, dynamic> ? json['detail'] : null;
+      final message = detail is String ? detail : null;
+      if (reponse.statusCode == HttpStatus.unauthorized) {
+        return const DemandeDeDebit(sort: SortDuDebit.sessionExpiree);
+      }
+      if (reponse.statusCode == HttpStatus.conflict) {
+        return DemandeDeDebit(sort: SortDuDebit.dejaEnCours, message: message);
+      }
+      if (reponse.statusCode == 422 ||
+          reponse.statusCode == HttpStatus.forbidden) {
+        return DemandeDeDebit(sort: SortDuDebit.refusee, message: message);
+      }
+      if (reponse.statusCode >= 300 || json is! Map<String, dynamic>) {
+        return const DemandeDeDebit(sort: SortDuDebit.indisponible);
+      }
+      // ⚠️ `accepte` faux : l'opérateur a refusé d'envoyer la demande. Son
+      // message est écrit pour l'adhérent, on le montre tel quel.
+      return DemandeDeDebit(
+        sort: json['accepte'] == true
+            ? SortDuDebit.envoyee
+            : SortDuDebit.refusee,
+        message: json['message'] as String?,
+        simule: json['simule'] == true,
+      );
+    } on Object {
+      return const DemandeDeDebit(sort: SortDuDebit.indisponible);
+    }
+  }
+
+  @override
+  Future<Lecture<MaDsf>> maDsf(String dossier) => _lireEnJson(
+    '/cloture/dossiers/${Uri.encodeComponent(dossier)}/ma-dsf',
+    (json) => MaDsf.depuis(json as Map<String, dynamic>),
+  );
+
+  @override
+  Future<SortDuVersement> verserUnePieceDsf({
+    required String dossier,
+    required String exercice,
+    required int numero,
+    required String cheminDuFichier,
+  }) async {
+    try {
+      final fichier = File(cheminDuFichier);
+      if (!await fichier.exists()) return SortDuVersement.refusee;
+      final separateur = '----cga${DateTime.now().microsecondsSinceEpoch}';
+      final requete = await _client.postUrl(
+        base.resolve(
+          '/cloture/dossiers/${Uri.encodeComponent(dossier)}/ma-dsf/'
+          '${Uri.encodeComponent(exercice)}/pieces/$numero',
+        ),
+      );
+      _poserLaSession(requete);
+      requete.headers.set(
+        HttpHeaders.contentTypeHeader,
+        'multipart/form-data; boundary=$separateur',
+      );
+      // ⚠️ Les mêmes bornes que `envoyerLeFichier` : des octets bruts, jamais une
+      // chaîne encodée, ou le serveur lit deux octets de trop dans le fichier.
+      requete.add(
+        utf8.encode(
+          '--$separateur\r\n'
+          'Content-Disposition: form-data; name="fichier"; '
+          'filename="${fichier.uri.pathSegments.last}"\r\n'
+          'Content-Type: application/octet-stream\r\n\r\n',
+        ),
+      );
+      requete.add(await fichier.readAsBytes());
+      requete.add(utf8.encode('\r\n--$separateur--\r\n'));
+      final reponse = await requete.close().timeout(
+        const Duration(seconds: 90),
+      );
+      await reponse.drain<void>();
+      return switch (reponse.statusCode) {
+        HttpStatus.ok => SortDuVersement.recue,
+        HttpStatus.unauthorized => SortDuVersement.sessionExpiree,
+        HttpStatus.requestEntityTooLarge => SortDuVersement.tropLourde,
+        HttpStatus.unsupportedMediaType => SortDuVersement.formatRefuse,
+        HttpStatus.conflict ||
+        HttpStatus.notFound ||
+        HttpStatus.forbidden => SortDuVersement.refusee,
+        _ => SortDuVersement.indisponible,
+      };
+    } on Object {
+      return SortDuVersement.indisponible;
+    }
+  }
+
+  @override
+  Future<Lecture<MaPaie>> maPaie(
+    String dossier, {
+    required int annee,
+    required int mois,
+  }) async {
+    final jour = DateTime.now().toIso8601String().split('T').first;
+    final niu = Uri.encodeComponent(dossier);
+    final personnel = await _lireEnJson(
+      '/social/dossiers/$niu/salaries?a_la_date=$jour',
+      (json) => json as List<dynamic>,
+    );
+    if (personnel.valeur == null) {
+      return personnel.sessionAExpire
+          ? const Lecture.sessionExpiree()
+          : const Lecture.injoignable();
+    }
+    final declaration = await _lireEnJson(
+      '/social/dossiers/$niu/declaration/$annee/$mois?a_la_date=$jour',
+      (json) => json as Map<String, dynamic>,
+    );
+    if (declaration.valeur == null) {
+      return declaration.sessionAExpire
+          ? const Lecture.sessionExpiree()
+          : const Lecture.injoignable();
+    }
+    return Lecture.lue(
+      MaPaie.depuis(
+        annee: annee,
+        mois: mois,
+        personnel: personnel.valeur!,
+        declaration: declaration.valeur!,
+      ),
+    );
+  }
+
+  @override
+  Future<FichierLu> lireUnDocument(String chemin) async {
+    try {
+      final requete = await _client.getUrl(base.resolve(chemin));
+      _poserLaSession(requete);
+      final reponse = await requete.close().timeout(
+        const Duration(seconds: 20),
+      );
+      if (reponse.statusCode == HttpStatus.unauthorized) {
+        await reponse.drain<void>();
+        return const FichierLu(sessionAExpire: true);
+      }
+      if (reponse.statusCode == HttpStatus.notFound ||
+          reponse.statusCode == HttpStatus.conflict) {
         await reponse.drain<void>();
         return const FichierLu(introuvable: true);
       }

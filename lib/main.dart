@@ -109,7 +109,12 @@ class _EtatDeLApplication extends State<ApplicationCga> {
       // au jugé. L'application était verte : le vert ne figure nulle part dans
       // la marque. Voir `marque.dart`, qui traduit les jetons du web.
       theme: themeClair(),
-      darkTheme: themeSombre(),
+      // ⚠️ 18 octobre 2026 : LE THÈME CLAIR, MÊME QUAND LE TÉLÉPHONE EST EN MODE NUIT.
+      // L'application suivait le système : sur un téléphone réglé en nuit, l'adhérent
+      // la voyait toute sombre, cartes violettes sur fond noir, et le cabinet l'a
+      // jugée « vraiment moche ». L'espace adhérent web est clair et doux ; le mobile
+      // lui ressemble désormais. Le thème sombre reste dans `marque.dart`, inemployé.
+      themeMode: ThemeMode.light,
       home: switch ((_file, _connecte)) {
         // Le temps d'ouvrir la file. C'est immédiat en pratique, mais rendre
         // l'accueil avant qu'elle existe afficherait « rien en attente » à
@@ -129,6 +134,7 @@ class _EtatDeLApplication extends State<ApplicationCga> {
           quandDeconnecte: () => setState(() => _connecte = false),
           tableau: _client,
           fichiers: _client,
+          espace: _client,
         ),
         // ⚠️ L'APPLICATION NE S'OUVRE PLUS SUR UN MUR DE CONNEXION.
         //

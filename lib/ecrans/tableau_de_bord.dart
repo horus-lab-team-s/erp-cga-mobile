@@ -8,6 +8,7 @@ import '../contenu/cabinet.dart';
 import '../domaine/document_recu.dart';
 import '../domaine/echeance.dart';
 import '../domaine/mon_mois.dart';
+import '../composants/actions.dart';
 import '../marque.dart';
 import '../ports/service_de_session.dart';
 import '../ports/service_du_tableau_de_bord.dart';
@@ -44,7 +45,20 @@ class EcranTableauDeBord extends StatefulWidget {
     required this.ouvrirMesPieces,
     this.ouvrirPiece,
     this.seDeconnecter,
+    this.honorairesDus,
+    this.ouvrirHonoraires,
+    this.ouvrirMonEntreprise,
   });
+
+  /// Ouvre « Mon entreprise » ; à défaut, l'onglet « Plus » qui la range.
+  final VoidCallback? ouvrirMonEntreprise;
+
+  /// 18 octobre 2026 : ce que l'adhérent doit au cabinet, lu par la coquille.
+  /// `null` ou zéro : rien à régler, la carte ne paraît pas.
+  final int? honorairesDus;
+
+  /// Ouvre l'écran des honoraires, là où l'on règle par mobile money.
+  final VoidCallback? ouvrirHonoraires;
 
   final ServiceDeSession session;
   final ServiceDuTableauDeBord tableau;
@@ -69,7 +83,9 @@ class EcranTableauDeBord extends StatefulWidget {
   static const ongletEcheances = 1;
   static const ongletDeposer = 2;
   static const ongletDocuments = 3;
-  static const ongletEntreprise = 4;
+
+  /// 18 octobre 2026 : « Plus » a pris la place d'« Entreprise ».
+  static const ongletPlus = 4;
 
   @override
   State<EcranTableauDeBord> createState() => _EtatDuTableauDeBord();
@@ -267,6 +283,55 @@ class _EtatDuTableauDeBord extends State<EcranTableauDeBord> {
           ),
           const SizedBox(height: Marque.espace6),
 
+          // ── Les honoraires dus (18 octobre 2026) ─────────────────────────
+          //
+          // ⚠️ Le règlement est rangé sous « Plus » ; sans cette carte, un
+          // adhérent en retard ne le trouverait qu'en cherchant. Elle ne paraît
+          // que s'il y a un montant dû, et mène droit à l'écran du paiement.
+          if ((widget.honorairesDus ?? 0) > 0 &&
+              widget.ouvrirHonoraires != null) ...[
+            Carte(
+              key: const Key('accueil-honoraires'),
+              ton: TonDeCarte.accent,
+              surAppui: widget.ouvrirHonoraires,
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.account_balance_wallet_outlined,
+                      color: Theme.of(context).colorScheme.onPrimaryContainer,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${montantFcfa(widget.honorairesDus!)} d\'honoraires à régler',
+                          style: texte.titleSmall,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Réglez par mobile money, en deux gestes.',
+                          style: texte.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right),
+                ],
+              ),
+            ),
+            const SizedBox(height: Marque.espace6),
+          ],
+
           // ── Ce que le cabinet demande ────────────────────────────────────
           if (m.attendues.isNotEmpty) ...[
             Text('Ce que le cabinet vous demande', style: texte.titleMedium),
@@ -347,8 +412,9 @@ class _EtatDuTableauDeBord extends State<EcranTableauDeBord> {
           const SizedBox(height: Marque.espace3),
           _Raccourcis(
             surMesPieces: widget.ouvrirMesPieces,
-            surEntreprise: () =>
-                widget.allerALOnglet(EcranTableauDeBord.ongletEntreprise),
+            surEntreprise:
+                widget.ouvrirMonEntreprise ??
+                () => widget.allerALOnglet(EcranTableauDeBord.ongletPlus),
             surEcrire: () => joindre(
               context,
               Cabinet.whatsappLien,

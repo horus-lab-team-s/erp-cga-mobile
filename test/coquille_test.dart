@@ -17,6 +17,7 @@ import 'package:cga_mobile/ports/service_de_session.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'soutien/espace_feint.dart';
 import 'soutien/tableau_feint.dart';
 
 /// ─────────────────────────────────────────────────────────────────────────────
@@ -130,8 +131,10 @@ void main() {
   Future<SessionFeinte> poser(
     WidgetTester testeur, {
     SessionFeinte? session,
+    EspaceFeint? espace,
   }) async {
     final s = session ?? SessionFeinte();
+    espace ??= EspaceFeint();
     await testeur.pumpWidget(
       MaterialApp(
         theme: themeClair(),
@@ -142,6 +145,7 @@ void main() {
           remettre: (_) async => Reponse.accepte,
           quandDeconnecte: () {},
           tableau: TableauFeint(),
+          espace: espace,
         ),
       ),
     );
@@ -158,14 +162,14 @@ void main() {
     expect(find.byKey(const Key('onglet-accueil')), findsOneWidget);
     expect(find.byKey(const Key('onglet-deposer')), findsOneWidget);
     expect(find.byKey(const Key('onglet-echeances')), findsOneWidget);
-    expect(find.byKey(const Key('onglet-entreprise')), findsOneWidget);
+    expect(find.byKey(const Key('onglet-plus')), findsOneWidget);
     expect(find.byKey(const Key('onglet-documents')), findsOneWidget);
     for (final libelle in [
       'Accueil',
       'Échéances',
       'Déposer',
       'Documents',
-      'Entreprise',
+      'Plus',
     ]) {
       expect(
         find.text(libelle),
@@ -232,7 +236,7 @@ void main() {
       'onglet-echeances',
       'onglet-deposer',
       'onglet-documents',
-      'onglet-entreprise',
+      'onglet-plus',
     ]) {
       final taille = testeur.getSize(find.byKey(Key(cle)));
       expect(taille.height, greaterThanOrEqualTo(48), reason: cle);
@@ -254,10 +258,20 @@ void main() {
     await testeur.pumpAndSettle();
     expect(find.text('Mes échéances'), findsOneWidget);
 
-    await testeur.tap(find.byKey(const Key('onglet-entreprise')));
+    // 18 octobre 2026 : « Plus » remplace « Entreprise », et mène à elle.
+    await testeur.tap(find.byKey(const Key('onglet-plus')));
     await testeur.pumpAndSettle();
     // ⚠️ On vise le titre de l'ÉCRAN, pas n'importe quel texte : le libellé de
     // l'onglet vit dans le même arbre, et un `find.text` nu les confondrait.
+    expect(
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.text('Mon espace'),
+      ),
+      findsOneWidget,
+    );
+    await testeur.tap(find.byKey(const Key('plus-entreprise')));
+    await testeur.pumpAndSettle();
     expect(
       find.descendant(
         of: find.byType(AppBar),
@@ -265,10 +279,43 @@ void main() {
       ),
       findsOneWidget,
     );
+    await testeur.pageBack();
+    await testeur.pumpAndSettle();
 
     await testeur.tap(find.byKey(const Key('onglet-documents')));
     await testeur.pumpAndSettle();
     expect(find.text('Mes documents'), findsOneWidget);
+  });
+
+  testWidgets(
+    'Des honoraires dus se signalent à l\'accueil et mènent au paiement',
+    (testeur) async {
+      // 18 octobre 2026 : le règlement est rangé sous « Plus » ; sans cette carte,
+      // un adhérent en retard ne le trouverait qu'en cherchant.
+      await poser(testeur, espace: EspaceFeint(honoraires: honorairesDEssai()));
+      // ⚠️ Remontée AU-DESSUS de la barre flottante, qui prendrait le toucher.
+    await Scrollable.ensureVisible(
+      testeur.element(find.byKey(const Key('accueil-honoraires'))),
+      alignment: 0.3,
+    );
+    await testeur.pumpAndSettle();
+      await testeur.tap(find.byKey(const Key('accueil-honoraires')));
+      await testeur.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.text('Mes honoraires'),
+        ),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('Rien n\'est dû : l\'accueil ne parle pas d\'honoraires', (
+    testeur,
+  ) async {
+    await poser(testeur);
+    expect(find.byKey(const Key('accueil-honoraires')), findsNothing);
   });
 
   testWidgets(
@@ -313,6 +360,7 @@ void main() {
             remettre: (_) async => Reponse.accepte,
             quandDeconnecte: () {},
             tableau: TableauFeint(),
+            espace: EspaceFeint(),
           ),
         ),
       );

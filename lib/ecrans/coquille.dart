@@ -6,6 +6,7 @@ import '../marque.dart';
 import '../domaine/depot.dart';
 import '../domaine/file_d_attente.dart';
 import '../domaine/prise_de_vue.dart';
+import '../ports/service_de_l_espace.dart';
 import '../ports/service_de_session.dart';
 import '../ports/service_des_fichiers.dart';
 import '../ports/service_du_tableau_de_bord.dart';
@@ -13,7 +14,11 @@ import 'accueil.dart';
 import 'echeances.dart';
 import 'historique.dart';
 import 'documents.dart';
+import 'honoraires.dart';
+import 'ma_dsf.dart';
+import 'ma_paie.dart';
 import 'mon_entreprise.dart';
+import 'plus.dart';
 import 'tableau_de_bord.dart';
 import 'visionneuse.dart';
 
@@ -53,8 +58,12 @@ class Coquille extends StatefulWidget {
     required this.remettre,
     required this.quandDeconnecte,
     required this.tableau,
+    required this.espace,
     this.fichiers,
   });
+
+  /// Honoraires, DSF, paie et documents servis par une route (18 octobre 2026).
+  final ServiceDeLEspace espace;
 
   final ServiceDeSession session;
 
@@ -127,6 +136,7 @@ class _EtatDeLaCoquille extends State<Coquille> {
       dossiers = const [];
     }
     if (mounted) setState(() => _dossiers = dossiers);
+    await _lireLesHonoraires();
   }
 
   /// L'historique des pièces, ouvert PAR-DESSUS la coquille : il a sa propre
@@ -141,6 +151,60 @@ class _EtatDeLaCoquille extends State<Coquille> {
       ),
     ),
   );
+
+  final _plus = GlobalKey<EtatDuPlus>();
+
+  /// Ce que l'adhérent doit au cabinet, pour la carte de l'accueil. Relu au
+  /// retour d'un écran : une période réglée doit faire disparaître la carte.
+  int? _honorairesDus;
+
+  Future<void> _lireLesHonoraires() async {
+    final dossiers = _dossiers;
+    if (dossiers == null || dossiers.isEmpty) return;
+    final lue = await widget.espace.mesHonoraires(dossiers.first);
+    if (!mounted || lue.valeur == null) return;
+    setState(() => _honorairesDus = lue.valeur!.du);
+  }
+
+  void _ouvrirLesHonoraires(List<String> dossiers) => _ouvrir(
+    () => EcranHonoraires(
+      espace: widget.espace,
+      dossiers: dossiers,
+      quandSessionExpire: widget.quandDeconnecte,
+      ouvrirDocument: _ouvrirDocument,
+    ),
+  );
+
+  void _ouvrirMonEntreprise(List<String> dossiers) => _ouvrir(
+    () => EcranMonEntreprise(
+      session: widget.session,
+      dossiers: dossiers,
+      quandSessionExpire: widget.quandDeconnecte,
+    ),
+  );
+
+  /// Un écran de l'espace, ouvert par-dessus la coquille ; « Plus » se relit au
+  /// retour, pour qu'une période réglée ou une pièce versée perde sa pastille.
+  Future<void> _ouvrir(Widget Function() ecran) async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => ecran()));
+    await _plus.currentState?.relire();
+    await _lireLesHonoraires();
+  }
+
+  /// Un PDF servi par une route : note, reçu, facture, DSF déposée.
+  void _ouvrirDocument(String chemin, String titre) =>
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => EcranVisionneuse(
+            fichiers: DocumentsDeLEspace(widget.espace),
+            piece: chemin,
+            titre: titre,
+            quandSessionExpire: widget.quandDeconnecte,
+          ),
+        ),
+      );
 
   /// Le document d'une pièce, ouvert par-dessus la coquille.
   void _ouvrirPiece(String piece) => Navigator.of(context).push(
@@ -185,6 +249,9 @@ class _EtatDeLaCoquille extends State<Coquille> {
                   allerALOnglet: (i) => setState(() => _onglet = i),
                   ouvrirMesPieces: () => _ouvrirMesPieces(dossiers),
                   ouvrirPiece: widget.fichiers == null ? null : _ouvrirPiece,
+                  honorairesDus: _honorairesDus,
+                  ouvrirHonoraires: () => _ouvrirLesHonoraires(dossiers),
+                  ouvrirMonEntreprise: () => _ouvrirMonEntreprise(dossiers),
                   seDeconnecter: () async {
                     await widget.session.fermerLaSession();
                     widget.quandDeconnecte();
@@ -237,16 +304,42 @@ class _EtatDeLaCoquille extends State<Coquille> {
                   // sur un écran auquel rien ne menait depuis ici.
                   ouvrirLHistorique: () => _ouvrirMesPieces(dossiers),
                 ),
-              // ── 4. Entreprise ──────────────────────────────────────────────
+              // ── 4. Plus ────────────────────────────────────────────────────
+              // 18 octobre 2026 : honoraires, DSF, paie, entreprise et pièces
+              // envoyées, à un toucher. « Entreprise » y descend : on la consulte
+              // rarement, et la barre ne tient pas un sixième onglet.
               if (dossiers == null)
-                const _EnAttenteDeDossier(titre: 'Mon entreprise')
+                const _EnAttenteDeDossier(titre: 'Mon espace')
               else if (dossiers.isEmpty)
-                const _SansDossier(titre: 'Mon entreprise')
+                const _SansDossier(titre: 'Mon espace')
               else
-                EcranMonEntreprise(
-                  session: widget.session,
-                  dossiers: dossiers,
-                  quandSessionExpire: widget.quandDeconnecte,
+                EcranPlus(
+                  key: _plus,
+                  espace: widget.espace,
+                  dossier: dossiers.first,
+                  ouvrirHonoraires: () => _ouvrirLesHonoraires(dossiers),
+                  ouvrirMaDsf: () => _ouvrir(
+                    () => EcranMaDsf(
+                      espace: widget.espace,
+                      dossiers: dossiers,
+                      priseDeVue: widget.priseDeVue,
+                      quandSessionExpire: widget.quandDeconnecte,
+                      ouvrirDocument: _ouvrirDocument,
+                    ),
+                  ),
+                  ouvrirMaPaie: () => _ouvrir(
+                    () => EcranMaPaie(
+                      espace: widget.espace,
+                      dossiers: dossiers,
+                      quandSessionExpire: widget.quandDeconnecte,
+                    ),
+                  ),
+                  ouvrirMonEntreprise: () => _ouvrirMonEntreprise(dossiers),
+                  ouvrirMesPieces: () => _ouvrirMesPieces(dossiers),
+                  seDeconnecter: () async {
+                    await widget.session.fermerLaSession();
+                    widget.quandDeconnecte();
+                  },
                 ),
             ],
           ),
@@ -275,6 +368,7 @@ class _EtatDeLaCoquille extends State<Coquille> {
           // plus léger du système : il dit « c'est pris », sans secouer.
           HapticFeedback.selectionClick();
           setState(() => _onglet = i);
+          if (i == 4) _plus.currentState?.relire();
         },
         surDeposer: () {
           // Le dépôt est le geste principal : un retour un peu plus franc.
@@ -520,13 +614,13 @@ class _BarreDuBas extends StatelessWidget {
                   choisi: onglet == 3,
                   surAppui: () => surChoix(3),
                 ),
+                // 18 octobre 2026 : « Plus » remplace « Entreprise », qui y
+                // descend avec les honoraires, la DSF et la paie.
                 _Onglet(
-                  cle: 'onglet-entreprise',
-                  icone: Icons.storefront_outlined,
-                  iconeChoisie: Icons.storefront,
-                  // ⚠️ « Entreprise » et non « Mon entreprise » : l'écran porte
-                  // déjà ce titre, et le répéter fait lire deux fois la même chose.
-                  libelle: 'Entreprise',
+                  cle: 'onglet-plus',
+                  icone: Icons.grid_view_outlined,
+                  iconeChoisie: Icons.grid_view_rounded,
+                  libelle: 'Plus',
                   choisi: onglet == 4,
                   surAppui: () => surChoix(4),
                 ),

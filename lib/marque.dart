@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// Les jetons de la marque, traduits du système du web.
 ///
@@ -412,19 +413,30 @@ ThemeData _theme({
     // § 10.7 proscrit l'animation spectaculaire, et sur un téléphone d'entrée
     // de gamme elle saccade.
     splashFactory: InkSparkle.splashFactory,
+    // ⚠️ 18 octobre 2026 : LA BARRE DE TITRE EST CLAIRE. Une dalle indigo pleine
+    // en tête de chaque écran pesait comme un bandeau d'administration ; l'espace
+    // web pose son titre sur le fond de page, en indigo, dans la police des
+    // titres. Le mobile fait de même. La barre ne prend un fond qu'une fois le
+    // contenu passé dessous, pour rester lisible au défilement.
     appBarTheme: AppBarTheme(
-      backgroundColor: institution,
+      backgroundColor: fond,
       foregroundColor: brightness == Brightness.light
-          ? Colors.white
-          : Marque.encre900Sombre,
+          ? Marque.indigo900
+          : encre,
+      surfaceTintColor: Colors.transparent,
       elevation: 0,
+      scrolledUnderElevation: 0.6,
+      shadowColor: filetFort,
       centerTitle: false,
+      systemOverlayStyle: brightness == Brightness.light
+          ? SystemUiOverlayStyle.dark
+          : SystemUiOverlayStyle.light,
       titleTextStyle: TextStyle(
-        fontSize: 19,
+        fontFamily: Marque.policeTitre,
+        fontSize: 21,
         fontWeight: FontWeight.w600,
-        color: brightness == Brightness.light
-            ? Colors.white
-            : Marque.encre900Sombre,
+        letterSpacing: -0.2,
+        color: brightness == Brightness.light ? Marque.indigo900 : encre,
       ),
     ),
     cardTheme: CardThemeData(
