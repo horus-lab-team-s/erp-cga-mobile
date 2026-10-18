@@ -455,7 +455,11 @@ ThemeData _theme({
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(Marque.rayonCarte),
         ),
+        // ⚠️ 18 octobre 2026 : LA FAMILLE EST NOMMÉE. Un style de bouton sans
+        // famille ne prend pas celle du thème : il tombait sur Roboto, la police
+        // du système, et les boutons n'étaient pas en Inter comme le reste.
         textStyle: const TextStyle(
+          fontFamily: Marque.policeTexte,
           fontSize: 16,
           fontWeight: FontWeight.w600,
           letterSpacing: 0.1,
@@ -470,13 +474,21 @@ ThemeData _theme({
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(Marque.rayonCarte),
         ),
-        textStyle: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600),
+        textStyle: const TextStyle(
+          fontFamily: Marque.policeTexte,
+          fontSize: 15.5,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
         foregroundColor: titre,
-        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+        textStyle: const TextStyle(
+          fontFamily: Marque.policeTexte,
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     ),
     // ⚠️ DES CHAMPS REMPLIS, ET NON CERCLÉS.

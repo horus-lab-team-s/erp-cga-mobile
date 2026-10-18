@@ -153,7 +153,15 @@ class Echeance {
     prochaineEcheance: _date(json['prochaine_echeance']),
     // ⚠️ `num` et non `double` : un montant rond arrive en entier. Même piège
     // que sur les pièces remises, et il tombait sur la moitié des lignes.
-    montantEstime: (json['montant_estime'] as num?)?.toDouble(),
+    //
+    // ⚠️ 18 octobre 2026 : ET UNE CHAÎNE AUSSI. Le serveur rend un `Decimal` en
+    // texte (« 191962.00 ») ; le champ était toujours vide jusqu'à ce que l'arrêté
+    // des charges le remplisse, et la lecture aurait alors levé sur chaque ligne.
+    montantEstime: switch (json['montant_estime']) {
+      final num n => n.toDouble(),
+      final String t => double.tryParse(t),
+      _ => null,
+    },
   );
 }
 

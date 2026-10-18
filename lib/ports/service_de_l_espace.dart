@@ -1,3 +1,4 @@
+import '../domaine/fonds_confies.dart';
 import '../domaine/honoraires.dart';
 import '../domaine/ma_dsf.dart';
 import '../domaine/ma_paie.dart';
@@ -63,6 +64,17 @@ abstract class ServiceDeLEspace {
     String dossier, {
     required int annee,
     required int mois,
+  });
+
+  /// Les échéances que le cabinet paie pour l'adhérent, et leurs appels de fonds.
+  Future<Lecture<FondsConfies>> mesFondsConfies(String dossier);
+
+  /// Remettre ses fonds au cabinet par mobile money, pour un appel. Rien n'est
+  /// payé ici : la notification de l'opérateur constate les fonds.
+  Future<DemandeDeDebit> confierSesFonds({
+    required String dossier,
+    required String appel,
+    required String telephone,
   });
 
   /// Un PDF servi par une route : note, reçu, facture, DSF déposée.

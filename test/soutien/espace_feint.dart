@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:cga_mobile/domaine/fonds_confies.dart';
 import 'package:cga_mobile/domaine/honoraires.dart';
 import 'package:cga_mobile/domaine/ma_dsf.dart';
 import 'package:cga_mobile/domaine/ma_paie.dart';
@@ -14,6 +15,7 @@ class EspaceFeint implements ServiceDeLEspace {
     this.paie,
     this.debit = const DemandeDeDebit(sort: SortDuDebit.envoyee, simule: true),
     this.versement = SortDuVersement.recue,
+    this.fonds = FondsConfies.aucun,
   });
 
   MesHonoraires? honoraires;
@@ -69,6 +71,25 @@ class EspaceFeint implements ServiceDeLEspace {
   }) async {
     final p = paie;
     return p == null ? const Lecture.injoignable() : Lecture.lue(p);
+  }
+
+  FondsConfies? fonds;
+  final List<String> fondsConfies = [];
+
+  @override
+  Future<Lecture<FondsConfies>> mesFondsConfies(String dossier) async {
+    final f = fonds;
+    return f == null ? const Lecture.injoignable() : Lecture.lue(f);
+  }
+
+  @override
+  Future<DemandeDeDebit> confierSesFonds({
+    required String dossier,
+    required String appel,
+    required String telephone,
+  }) async {
+    fondsConfies.add('$appel:$telephone');
+    return debit;
   }
 
   @override

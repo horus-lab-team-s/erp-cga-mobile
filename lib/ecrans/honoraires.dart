@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../composants/actions.dart';
 import '../composants/carte.dart';
+import '../composants/paiement.dart';
 import '../domaine/honoraires.dart';
 import '../marque.dart';
 import '../ports/service_de_l_espace.dart';
@@ -67,10 +68,16 @@ class _EtatDesHonoraires extends State<EcranHonoraires> {
   Future<void> _payer(PeriodeDHonoraires periode) async {
     final envoyee = await ouvrirUneFeuille<bool>(
       context,
-      construire: (_) => _FeuilleDePaiement(
-        espace: widget.espace,
-        dossier: _dossier,
-        periode: periode,
+      construire: (_) => FeuilleDePaiement(
+        objet: 'Honoraires · ${_periode(periode)}',
+        montant: periode.montant,
+        envoyer: (telephone) => widget.espace.demanderLeDebit(
+          dossier: _dossier,
+          periode: periode.cle,
+          telephone: telephone,
+        ),
+        apresLePaiement:
+            'La période passera à « Réglée » dès que l\'opérateur nous l\'aura confirmé.',
       ),
     );
     if (envoyee == true) await _relire();
@@ -411,196 +418,6 @@ class _PeriodeReglee extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-/// La feuille du paiement : récapituler, demander le numéro, puis dire quoi faire.
-class _FeuilleDePaiement extends StatefulWidget {
-  const _FeuilleDePaiement({
-    required this.espace,
-    required this.dossier,
-    required this.periode,
-  });
-
-  final ServiceDeLEspace espace;
-  final String dossier;
-  final PeriodeDHonoraires periode;
-
-  @override
-  State<_FeuilleDePaiement> createState() => _EtatDeLaFeuilleDePaiement();
-}
-
-class _EtatDeLaFeuilleDePaiement extends State<_FeuilleDePaiement> {
-  final _numero = TextEditingController();
-  bool _enCours = false;
-  DemandeDeDebit? _sort;
-
-  @override
-  void dispose() {
-    _numero.dispose();
-    super.dispose();
-  }
-
-  Future<void> _envoyer() async {
-    final numero = _numero.text.replaceAll(RegExp(r'\s'), '');
-    if (numero.length < 9) {
-      setState(
-        () => _sort = const DemandeDeDebit(
-          sort: SortDuDebit.refusee,
-          message:
-              'Indiquez le numéro mobile money à débiter : neuf chiffres au moins.',
-        ),
-      );
-      return;
-    }
-    setState(() {
-      _enCours = true;
-      _sort = null;
-    });
-    final sort = await widget.espace.demanderLeDebit(
-      dossier: widget.dossier,
-      periode: widget.periode.cle,
-      telephone: numero,
-    );
-    if (!mounted) return;
-    setState(() {
-      _enCours = false;
-      _sort = sort;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final sort = _sort;
-    if (sort?.sort == SortDuDebit.envoyee) {
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const SizedBox(height: 8),
-          Container(
-            width: 72,
-            height: 72,
-            decoration: BoxDecoration(
-              color: Marque.reussite100,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(Icons.phone_android, size: 36, color: Marque.reussite),
-          ),
-          const SizedBox(height: 18),
-          Text(
-            'Validez sur votre téléphone',
-            style: theme.textTheme.titleLarge,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            'La demande de ${montantFcfa(widget.periode.montant)} est partie. Composez votre code secret '
-            'sur le message de votre opérateur. La période passera à « Réglée » dès qu\'il nous l\'aura confirmé.',
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              height: 1.45,
-            ),
-          ),
-          if (sort!.simule) ...[
-            const SizedBox(height: 12),
-            const Pastille(
-              'Démonstration : aucun débit réel',
-              ton: TonDePastille.attente,
-            ),
-          ],
-          const SizedBox(height: 22),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('J\'ai compris'),
-            ),
-          ),
-        ],
-      );
-    }
-    final message = switch (sort?.sort) {
-      null || SortDuDebit.envoyee => null,
-      SortDuDebit.dejaEnCours =>
-        sort!.message ??
-            'Une demande est déjà en cours pour cette période : validez-la sur votre téléphone.',
-      SortDuDebit.refusee =>
-        sort!.message ?? 'La demande a été refusée. Vérifiez le numéro.',
-      SortDuDebit.sessionExpiree =>
-        'Votre session a expiré : reconnectez-vous, puis recommencez.',
-      SortDuDebit.indisponible =>
-        'Le serveur n\'a pas répondu. Vérifiez votre connexion, puis réessayez.',
-    };
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Payer par mobile money', style: theme.textTheme.titleLarge),
-        const SizedBox(height: 16),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainerHigh,
-            borderRadius: BorderRadius.circular(Marque.rayonCarte),
-          ),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Honoraires · ${_periode(widget.periode)}',
-                  style: theme.textTheme.bodyMedium,
-                ),
-              ),
-              Text(
-                montantFcfa(widget.periode.montant),
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        TextField(
-          key: const Key('numero-mobile-money'),
-          controller: _numero,
-          keyboardType: TextInputType.phone,
-          autofocus: true,
-          enabled: !_enCours,
-          decoration: const InputDecoration(
-            labelText: 'Numéro à débiter',
-            hintText: '6 77 12 34 56',
-            prefixIcon: Icon(Icons.phone_outlined),
-            helperText:
-                'MTN Mobile Money ou Orange Money. Vous validerez sur ce téléphone.',
-            helperMaxLines: 2,
-          ),
-        ),
-        if (message != null) ...[
-          const SizedBox(height: 12),
-          Text(
-            message,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.error,
-            ),
-          ),
-        ],
-        const SizedBox(height: 20),
-        SizedBox(
-          width: double.infinity,
-          child: BoutonDAction(
-            key: const Key('confirmer-le-paiement'),
-            libelle:
-                'Envoyer la demande de ${montantFcfa(widget.periode.montant)}',
-            libelleEnCours: 'Envoi à l\'opérateur…',
-            icone: Icons.send_outlined,
-            enCours: _enCours,
-            surAppui: _envoyer,
-          ),
-        ),
-      ],
     );
   }
 }

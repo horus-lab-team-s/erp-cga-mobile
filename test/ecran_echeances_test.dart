@@ -14,6 +14,10 @@ import 'package:cga_mobile/marque.dart';
 import 'package:cga_mobile/ports/service_de_session.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:cga_mobile/composants/actions.dart';
+import 'package:cga_mobile/domaine/fonds_confies.dart';
+
+import 'soutien/espace_feint.dart';
 
 /// ─────────────────────────────────────────────────────────────────────────────
 /// CE QUE CES CAS TIENNENT
@@ -149,6 +153,7 @@ void main() {
     WidgetTester testeur, {
     Echeancier echeancier = const Echeancier(),
     VoidCallback? quandSessionExpire,
+    EspaceFeint? espace,
   }) async {
     final s = SessionFeinte(echeancier: echeancier);
     await testeur.pumpWidget(
@@ -159,6 +164,7 @@ void main() {
           dossiers: const ['M081234567890P'],
           quandSessionExpire: quandSessionExpire ?? () {},
           priseDeVue: prise,
+          espace: espace,
         ),
       ),
     );
@@ -436,4 +442,85 @@ void main() {
     expect(session.demandes.length, 2);
     expect(find.text('1 période en retard'), findsOneWidget);
   });
+
+  // ── 18 octobre 2026 : toutes les façons de régler ─────────────────────────
+  FondsConfies sousMandat({String etat = 'A_REGLER'}) => FondsConfies.depuis({
+    'obligations_mandatees': ['CNPS'],
+    'appels': [
+      {
+        'identifiant': 'AF-M081234567890P-CNPS-20250101',
+        'code_obligation': 'CNPS',
+        'libelle': 'Cotisations sociales CNPS',
+        'periode_debut': '2025-01-01',
+        'montant': '110618',
+        'etat': etat,
+      },
+    ],
+  });
+
+  testWidgets(
+    'Sous mandat, l\'échéance se règle par mobile money, sans quittance',
+    (testeur) async {
+      final espace = EspaceFeint(fonds: sousMandat());
+      await poser(
+        testeur,
+        echeancier: Echeancier(echeances: [echeance()]),
+        espace: espace,
+      );
+      await testeur.pumpAndSettle();
+
+      expect(find.text(montantFcfa(110618)), findsOneWidget);
+      expect(find.textContaining('rien à photographier'), findsOneWidget);
+      await testeur.tap(find.byKey(const Key('regler-CNPS')));
+      await testeur.pumpAndSettle();
+      await testeur.enterText(
+        find.byKey(const Key('numero-mobile-money')),
+        '677123456',
+      );
+      await testeur.tap(find.byKey(const Key('confirmer-le-paiement')));
+      await testeur.pumpAndSettle();
+
+      expect(espace.fondsConfies, [
+        'AF-M081234567890P-CNPS-20250101:677123456',
+      ]);
+      expect(find.text('Validez sur votre téléphone'), findsOneWidget);
+      expect(appareil.prises, 0, reason: 'aucune photo n\'a été demandée');
+    },
+  );
+
+  testWidgets('Les fonds reçus, l\'échéance dit que le cabinet paie', (
+    testeur,
+  ) async {
+    await poser(
+      testeur,
+      echeancier: Echeancier(echeances: [echeance()]),
+      espace: EspaceFeint(fonds: sousMandat(etat: 'FONDS_RECUS')),
+    );
+    await testeur.pumpAndSettle();
+
+    expect(
+      find.textContaining('le cabinet paie l\'administration pour vous'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('regler-CNPS')), findsNothing);
+  });
+
+  testWidgets(
+    'Sans mandat, les voies se disent, et la quittance reste offerte',
+    (testeur) async {
+      await poser(
+        testeur,
+        echeancier: Echeancier(echeances: [echeance()]),
+        espace: EspaceFeint(),
+      );
+      await testeur.pumpAndSettle();
+
+      expect(find.byKey(const Key('jai-paye-CNPS')), findsOneWidget);
+      await testeur.tap(find.byKey(const Key('voies-CNPS')));
+      await testeur.pumpAndSettle();
+      expect(find.text('Le cabinet paie pour vous'), findsOneWidget);
+      expect(find.text('Vous payez vous-même'), findsOneWidget);
+      expect(find.text('Le demander au cabinet'), findsOneWidget);
+    },
+  );
 }

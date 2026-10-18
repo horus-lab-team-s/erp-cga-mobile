@@ -78,6 +78,7 @@ void main() {
     WidgetTester testeur, {
     Documents documents = const Documents(),
     VoidCallback? ouvrirLHistorique,
+    void Function(String dossier, String numero)? ouvrirLeRecu,
   }) async {
     final s = SessionFeinte(documents: documents);
     await testeur.pumpWidget(
@@ -88,6 +89,7 @@ void main() {
           dossiers: const ['M081234567890P'],
           quandSessionExpire: () {},
           ouvrirLHistorique: ouvrirLHistorique,
+          ouvrirLeRecu: ouvrirLeRecu,
         ),
       ),
     );
@@ -353,5 +355,21 @@ void main() {
       );
     }
     expect(find.textContaining('février 2024'), findsOneWidget);
+  });
+
+  testWidgets('Toucher un accusé ouvre son reçu de dépôt', (testeur) async {
+    // 18 octobre 2026 : « je ne vois que les références ». Chaque accusé a sa
+    // miniature, et son reçu PDF s'ouvre d'un toucher.
+    final ouverts = <String>[];
+    await poser(
+      testeur,
+      documents: Documents(documents: [document()]),
+      ouvrirLeRecu: (dossier, numero) => ouverts.add('$dossier/$numero'),
+    );
+    await testeur.pumpAndSettle();
+
+    expect(find.text('DÉPOSÉE'), findsOneWidget);
+    await testeur.tap(find.text('Voir le reçu'));
+    expect(ouverts.single, startsWith('M081234567890P/'));
   });
 }

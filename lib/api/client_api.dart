@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../domaine/document_recu.dart';
 import '../domaine/echeance.dart';
 import '../domaine/file_d_attente.dart';
+import '../domaine/fonds_confies.dart';
 import '../domaine/honoraires.dart';
 import '../domaine/ma_dsf.dart';
 import '../domaine/ma_paie.dart';
@@ -1041,16 +1042,39 @@ class ClientApi
     required String dossier,
     required String periode,
     required String telephone,
-  }) async {
+  }) => _demanderUnDebit(
+    '/souscription/honoraires/${Uri.encodeComponent(dossier)}/paiement-en-ligne',
+    {'periode': periode, 'telephone': telephone},
+  );
+
+  @override
+  Future<Lecture<FondsConfies>> mesFondsConfies(String dossier) => _lireEnJson(
+    '/souscription/fonds-de-tiers/${Uri.encodeComponent(dossier)}',
+    (json) => FondsConfies.depuis(json as Map<String, dynamic>),
+  );
+
+  @override
+  Future<DemandeDeDebit> confierSesFonds({
+    required String dossier,
+    required String appel,
+    required String telephone,
+  }) => _demanderUnDebit(
+    '/souscription/fonds-de-tiers/${Uri.encodeComponent(dossier)}'
+    '/appels/${Uri.encodeComponent(appel)}/paiement-en-ligne',
+    {'telephone': telephone},
+  );
+
+  /// Une demande de débit mobile money, honoraires ou fonds confiés : les deux
+  /// routes répondent de la même façon.
+  Future<DemandeDeDebit> _demanderUnDebit(
+    String chemin,
+    Map<String, Object> corpsDeLaDemande,
+  ) async {
     try {
-      final requete = await _client.postUrl(
-        base.resolve(
-          '/souscription/honoraires/${Uri.encodeComponent(dossier)}/paiement-en-ligne',
-        ),
-      );
+      final requete = await _client.postUrl(base.resolve(chemin));
       _poserLaSession(requete);
       requete.headers.contentType = ContentType.json;
-      requete.write(jsonEncode({'periode': periode, 'telephone': telephone}));
+      requete.write(jsonEncode(corpsDeLaDemande));
       final reponse = await requete.close().timeout(
         const Duration(seconds: 30),
       );

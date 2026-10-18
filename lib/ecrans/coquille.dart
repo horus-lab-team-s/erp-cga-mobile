@@ -268,6 +268,7 @@ class _EtatDeLaCoquille extends State<Coquille> {
                   dossiers: dossiers,
                   quandSessionExpire: widget.quandDeconnecte,
                   priseDeVue: widget.priseDeVue,
+                  espace: widget.espace,
                 ),
               // ── 2. Déposer ─────────────────────────────────────────────────
               // ⚠️ Le dépôt, LUI, se construit tout de suite : la file d'attente
@@ -303,6 +304,12 @@ class _EtatDeLaCoquille extends State<Coquille> {
                   // y étaient seuls ; les pièces remises AU cabinet vivaient
                   // sur un écran auquel rien ne menait depuis ici.
                   ouvrirLHistorique: () => _ouvrirMesPieces(dossiers),
+                  // 18 octobre 2026 : chaque accusé a son reçu PDF, qui s'ouvre ici.
+                  ouvrirLeRecu: (dossier, numero) => _ouvrirDocument(
+                    '/obligations/dossiers/${Uri.encodeComponent(dossier)}'
+                        '/mes-documents/${Uri.encodeComponent(numero)}/recu',
+                    'Reçu de dépôt',
+                  ),
                 ),
               // ── 4. Plus ────────────────────────────────────────────────────
               // 18 octobre 2026 : honoraires, DSF, paie, entreprise et pièces
