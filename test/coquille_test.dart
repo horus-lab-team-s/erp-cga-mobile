@@ -244,6 +244,20 @@ void main() {
     }
   });
 
+  testWidgets("L'accueil se relit quand on y revient", (testeur) async {
+    // 18 octobre 2026 : une CNPS réglée depuis les échéances restait « en
+    // retard » sur l'accueil, lu une fois pour toutes à la connexion.
+    final session = await poser(testeur);
+    await testeur.tap(find.byKey(const Key('onglet-echeances')));
+    await testeur.pumpAndSettle();
+    final avant = session.demandesDEcheances.length;
+
+    await testeur.tap(find.byKey(const Key('onglet-accueil')));
+    await testeur.pumpAndSettle();
+
+    expect(session.demandesDEcheances.length, avant + 1);
+  });
+
   testWidgets('Chaque onglet ouvre bien son écran', (testeur) async {
     await poser(testeur);
     // ⚠️ L'application connectée s'ouvre sur l'ACCUEIL, et non plus sur

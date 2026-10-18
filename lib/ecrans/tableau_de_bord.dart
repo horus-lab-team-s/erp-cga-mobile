@@ -88,10 +88,10 @@ class EcranTableauDeBord extends StatefulWidget {
   static const ongletPlus = 4;
 
   @override
-  State<EcranTableauDeBord> createState() => _EtatDuTableauDeBord();
+  State<EcranTableauDeBord> createState() => EtatDuTableauDeBord();
 }
 
-class _EtatDuTableauDeBord extends State<EcranTableauDeBord> {
+class EtatDuTableauDeBord extends State<EcranTableauDeBord> {
   String? _nom;
   MonMois? _mois;
   Echeancier? _echeancier;
@@ -109,6 +109,10 @@ class _EtatDuTableauDeBord extends State<EcranTableauDeBord> {
     super.initState();
     _relire();
   }
+
+  /// Relu par la coquille au retour sur l'onglet : une échéance réglée ailleurs
+  /// doit quitter les retards de l'accueil (18 octobre 2026).
+  Future<void> relire() => _relire();
 
   /// ⚠️ LES QUATRE LECTURES PARTENT ENSEMBLE : en 3G, les enchaîner
   /// quadruplerait l'attente devant un écran vide.

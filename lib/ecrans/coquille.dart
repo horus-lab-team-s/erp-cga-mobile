@@ -154,6 +154,10 @@ class _EtatDeLaCoquille extends State<Coquille> {
 
   final _plus = GlobalKey<EtatDuPlus>();
 
+  /// 18 octobre 2026 : l'accueil gardait ses chiffres de la connexion. Une CNPS
+  /// réglée depuis les échéances y restait « en retard » ; il se relit au retour.
+  final _tableauDeBord = GlobalKey<EtatDuTableauDeBord>();
+
   /// Ce que l'adhérent doit au cabinet, pour la carte de l'accueil. Relu au
   /// retour d'un écran : une période réglée doit faire disparaître la carte.
   int? _honorairesDus;
@@ -242,6 +246,7 @@ class _EtatDeLaCoquille extends State<Coquille> {
                 const _SansDossier(titre: 'Accueil')
               else
                 EcranTableauDeBord(
+                  key: _tableauDeBord,
                   session: widget.session,
                   tableau: widget.tableau,
                   dossiers: dossiers,
@@ -376,6 +381,10 @@ class _EtatDeLaCoquille extends State<Coquille> {
           HapticFeedback.selectionClick();
           setState(() => _onglet = i);
           if (i == 4) _plus.currentState?.relire();
+          if (i == 0) {
+            _tableauDeBord.currentState?.relire();
+            _lireLesHonoraires();
+          }
         },
         surDeposer: () {
           // Le dépôt est le geste principal : un retour un peu plus franc.
