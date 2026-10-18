@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../composants/actions.dart';
 import '../composants/carte.dart';
+import '../composants/source_d_image.dart';
 import '../domaine/ma_dsf.dart';
 import '../domaine/prise_de_vue.dart';
 import '../marque.dart';
@@ -66,7 +67,7 @@ class _EtatDeMaDsf extends State<EcranMaDsf> {
   }
 
   Future<void> _envoyer(MaDsfDeLExercice exercice, MaPieceDsf piece) async {
-    final chemin = await widget.priseDeVue.copieDurable();
+    final chemin = await obtenirUneImage(context, widget.priseDeVue);
     if (chemin == null || !mounted) return;
     setState(() => _envoi = '${exercice.exercice}/${piece.numero}');
     final sort = await widget.espace.verserUnePieceDsf(

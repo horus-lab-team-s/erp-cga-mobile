@@ -104,8 +104,12 @@ class PriseDeVue {
   /// manque, sans prévenir. Entre la prise de vue et la fin de l'envoi, il y a
   /// un aller-retour réseau : de quoi perdre le fichier sur un téléphone plein.
   /// ─────────────────────────────────────────────────────────────────────────
-  Future<String?> copieDurable() async {
-    final provisoire = await appareil.photographier();
+  Future<String?> copieDurable({bool depuisLaGalerie = false}) async {
+    final source = depuisLaGalerie ? galerie : appareil;
+    if (source == null) {
+      return null;
+    }
+    final provisoire = await source.photographier();
     if (provisoire == null) {
       return null;
     }

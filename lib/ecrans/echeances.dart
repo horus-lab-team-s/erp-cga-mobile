@@ -4,6 +4,7 @@ import '../composants/actions.dart';
 import '../composants/carte.dart';
 import '../composants/joindre.dart';
 import '../composants/paiement.dart';
+import '../composants/source_d_image.dart';
 import '../contenu/cabinet.dart';
 import '../domaine/fonds_confies.dart';
 import '../marque.dart';
@@ -148,7 +149,7 @@ class _EtatDesEcheances extends State<EcranEcheances>
   );
 
   Future<void> _jaiPaye(Echeance e) async {
-    final chemin = await widget.priseDeVue.copieDurable();
+    final chemin = await obtenirUneImage(context, widget.priseDeVue);
     if (chemin == null || !mounted) return;
     setState(() => _envoiEnCours = e.codeObligation);
     final sort = await widget.session.envoyerLaPreuve(

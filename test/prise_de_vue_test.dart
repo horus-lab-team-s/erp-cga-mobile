@@ -154,6 +154,27 @@ void main() {
       expect((await file.enAttente()).single.identifiant, depot.identifiant);
     });
 
+    test('une quittance ou une pièce de DSF peut venir de la galerie', () async {
+      final galerie = AppareilFeint(cache);
+      final prise = PriseDeVue(
+        appareil: AppareilFeint(cache),
+        galerie: galerie,
+        file: file,
+        photos: photos,
+      );
+
+      final chemin = await prise.copieDurable(depuisLaGalerie: true);
+
+      expect(galerie.prises, 1);
+      expect(chemin!.startsWith(photos.path), isTrue);
+      expect(
+        await file.enAttente(),
+        isEmpty,
+        reason:
+            'une quittance ne passe pas par la file : elle partirait deux fois',
+      );
+    });
+
     test('sans galerie, rien ne se crée', () async {
       final appareil = AppareilFeint(cache);
 
