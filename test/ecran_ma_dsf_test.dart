@@ -142,4 +142,44 @@ void main() {
     await testeur.tap(find.text('Voir la copie déposée'));
     expect(ouverts, ['/cloture/dossiers/M081234567890P/ma-dsf/2025/document']);
   });
+
+  testWidgets('Déposée, elle ne dit plus « à fournir » ce qui ne manque plus', (
+    testeur,
+  ) async {
+    // 18 octobre 2026 : connue par son seul accusé, une DSF déposée montrait encore
+    // ses pièces « à fournir », cercles vides, comme si quelque chose manquait.
+    final dsf = MaDsf.depuis({
+      'exercices': [
+        {
+          'exercice': '2025',
+          'cloture': '2025-12-31',
+          'etat': 'DEPOSEE',
+          'numero_accuse': 'DGI-2025-DSF-563648',
+          'deposee_le': '2026-05-13T10:00:00',
+          'document': false,
+          'a_fournir': 0,
+          'pieces': [
+            {
+              'numero': 1,
+              'libelle': 'Attestation de visa',
+              'etat': 'A_FOURNIR',
+              'nom_du_fichier': null,
+              'versable': false,
+            },
+            {
+              'numero': 11,
+              'libelle': 'État des stocks',
+              'etat': 'JOINTE',
+              'nom_du_fichier': 'stocks.jpg',
+              'versable': false,
+            },
+          ],
+        },
+      ],
+    });
+    await poser(testeur, EspaceFeint(dsf: dsf));
+
+    expect(find.text('Attestation de visa'), findsNothing);
+    expect(find.text('État des stocks'), findsOneWidget);
+  });
 }

@@ -198,6 +198,11 @@ class _Exercice extends StatelessWidget {
     final e = exercice;
     final theme = Theme.of(context);
     final deposee = e.etat == EtatDeMaDsf.deposee;
+    // 18 octobre 2026 : déposée, la DSF montrait encore ses pièces « à fournir », cercles
+    // vides, comme si quelque chose manquait. Ne restent que celles qu'il a versées.
+    final pieces = deposee
+        ? e.attendues.where((p) => p.etat == EtatDeMaPiece.jointe).toList()
+        : e.attendues;
     return Carte(
       padding: EdgeInsets.zero,
       ton: !deposee && e.aFournir > 0 ? TonDeCarte.accent : TonDeCarte.neutre,
@@ -265,7 +270,7 @@ class _Exercice extends StatelessWidget {
                 ),
               ],
             ],
-            if (e.attendues.isNotEmpty) ...[
+            if (pieces.isNotEmpty) ...[
               const SizedBox(height: 18),
               Text('Vos pièces', style: theme.textTheme.titleSmall),
               const SizedBox(height: 4),
@@ -278,7 +283,7 @@ class _Exercice extends StatelessWidget {
                   ),
                 ),
               const SizedBox(height: 8),
-              for (final p in e.attendues)
+              for (final p in pieces)
                 _Piece(
                   piece: p,
                   enCours: envoi == '${e.exercice}/${p.numero}',
