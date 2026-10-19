@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'adaptateurs/appareil_photo_systeme.dart';
+import 'adaptateurs/coffre_systeme.dart';
 import 'adaptateurs/magasin_fichier.dart';
 import 'adaptateurs/memoire_des_dossiers_fichier.dart';
 import 'api/client_api.dart';
@@ -59,7 +60,11 @@ class _EtatDeLApplication extends State<ApplicationCga> {
 
   late final ClientApi _client = ClientApi(
     base: Uri.parse(ClientApi.adresseParDefaut),
+    coffre: CoffreDuSysteme(),
   );
+
+  /// Vrai tant qu'on ne sait pas si la session gardée au coffre vaut encore.
+  bool _reprise = true;
   FileDAttente? _file;
   MemoireDesDossiers? _memoire;
   PriseDeVue? _priseDeVue;
@@ -69,6 +74,19 @@ class _EtatDeLApplication extends State<ApplicationCga> {
   void initState() {
     super.initState();
     _ouvrirLaFile();
+    _reprendreLaSession();
+  }
+
+  /// ⚠️ 19 octobre 2026 : un adhérent déjà connecté retombait sur la vitrine à chaque
+  /// ouverture, et retapait ses identifiants. La session gardée au coffre le ramène
+  /// directement à son espace.
+  Future<void> _reprendreLaSession() async {
+    final reprise = await _client.reprendreLaSession();
+    if (!mounted) return;
+    setState(() {
+      _reprise = false;
+      if (reprise) _connecte = true;
+    });
   }
 
   Future<void> _ouvrirLaFile() async {
@@ -128,6 +146,7 @@ class _EtatDeLApplication extends State<ApplicationCga> {
         // démarrage indigo d'Android et le bandeau indigo de la connexion, une
         // page blanche faisait un éclair à chaque ouverture.
         (null, _) => const EcranDOuverture(),
+        _ when _reprise => const EcranDOuverture(),
         // ⚠️ La coquille, et non l'accueil seul : c'est elle qui porte la
         // barre de navigation et lit les dossiers une fois pour les trois
         // écrans.
@@ -136,7 +155,11 @@ class _EtatDeLApplication extends State<ApplicationCga> {
           file: file,
           priseDeVue: _priseDeVue!,
           remettre: Remise(_client).remettre,
-          quandDeconnecte: () => setState(() => _connecte = false),
+          // Une session expirée en route sort aussi du coffre.
+          quandDeconnecte: () {
+            _client.oublierLaSession();
+            setState(() => _connecte = false);
+          },
           tableau: _client,
           fichiers: _client,
           espace: _client,

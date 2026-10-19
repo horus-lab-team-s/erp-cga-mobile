@@ -18,6 +18,7 @@ import '../domaine/souscription.dart';
 import '../domaine/suivi.dart';
 import '../domaine/vitrine.dart';
 import '../domaine/preuve.dart';
+import '../ports/coffre_de_session.dart';
 import '../ports/service_de_l_espace.dart';
 import '../ports/service_de_session.dart';
 import '../ports/service_des_fichiers.dart';
@@ -51,7 +52,7 @@ class ClientApi
         ServiceDuTableauDeBord,
         ServiceDesFichiers,
         ServiceDeLEspace {
-  ClientApi({required this.base, Uri? vitrine})
+  ClientApi({required this.base, Uri? vitrine, this.coffre})
     : vitrine = vitrine ?? Uri.parse(adresseDeLaVitrineParDefaut) {
     exigerHttps(base);
   }
@@ -106,10 +107,37 @@ class ClientApi
 
   final Uri base;
 
-  /// Le cookie de session, tel que le serveur l'a posé. ⚠️ Gardé en mémoire
-  /// seulement : l'écrire sur le disque demanderait le magasin protégé du
-  /// système, et le faire à moitié vaut moins que ne pas le faire.
+  /// Le cookie de session, tel que le serveur l'a posé. ⚠️ En mémoire, et dans
+  /// le coffre du système quand il y en a un ([coffre]) : jamais dans un fichier.
   String? _session;
+
+  /// Le coffre où la session survit à la fermeture de l'application (19 octobre 2026).
+  final CoffreDeSession? coffre;
+
+  /// Reprend la session gardée au coffre, et la confronte au serveur.
+  ///
+  /// ⚠️ Une session que le serveur refuse (expirée, révoquée) est effacée : on ne
+  /// garde pas un jeton qui ne vaut plus. Sans réseau, on la garde et on entre :
+  /// l'adhérent dépose hors ligne, et la file la présentera au retour du réseau.
+  Future<bool> reprendreLaSession() async {
+    final gardee = await coffre?.lire();
+    if (gardee == null) return false;
+    _session = gardee;
+    try {
+      final moi = await lire('/transverse/moi');
+      if (moi is Map<String, dynamic>) return true;
+    } on Object {
+      return true;
+    }
+    await oublierLaSession();
+    return false;
+  }
+
+  /// Oublie la session ici, sans appeler le serveur : elle a expiré, ou il refuse.
+  Future<void> oublierLaSession() async {
+    _session = null;
+    await coffre?.effacer();
+  }
 
   bool get connecte => _session != null;
 
@@ -134,6 +162,7 @@ class ClientApi
       return false;
     }
     _session = '${cookies.first.name}=${cookies.first.value}';
+    await coffre?.ecrire(_session!);
     return true;
   }
 
@@ -155,6 +184,7 @@ class ClientApi
       // Sans réseau, la session expirera d'elle-même côté serveur.
     } finally {
       _session = null;
+      await coffre?.effacer();
     }
   }
 
