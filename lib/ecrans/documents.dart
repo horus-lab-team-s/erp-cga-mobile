@@ -357,40 +357,46 @@ class _Carte extends StatelessWidget {
                 // ⚠️ LE NUMÉRO, ET LE GESTE DE LE COPIER : c'est la seule
                 // référence que l'administration reconnaîtra. Un appui le met
                 // dans le presse-papiers ; le recopier à la main invite la faute.
-                InkWell(
-                  key: Key('copier-${d.numero}'),
-                  onTap: () async {
-                    await Clipboard.setData(ClipboardData(text: d.numero));
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Numéro ${d.numero} copié')),
-                    );
-                  },
-                  borderRadius: BorderRadius.circular(Marque.rayonBloc),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Row(
-                      children: [
-                        Flexible(
-                          child: Text(
-                            d.numero,
-                            overflow: TextOverflow.ellipsis,
-                            style: texte.bodySmall?.copyWith(
-                              color: couleurs.onSurface,
-                              fontWeight: FontWeight.w600,
-                              fontFeatures: const [
-                                FontFeature.tabularFigures(),
-                              ],
+                // 19 octobre 2026 : une cible de 48 points, annoncée au lecteur d'écran.
+                Semantics(
+                  button: true,
+                  label: 'Copier le numéro ${d.numero}',
+                  excludeSemantics: true,
+                  child: InkWell(
+                    key: Key('copier-${d.numero}'),
+                    onTap: () async {
+                      await Clipboard.setData(ClipboardData(text: d.numero));
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Numéro ${d.numero} copié')),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(Marque.rayonBloc),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              d.numero,
+                              overflow: TextOverflow.ellipsis,
+                              style: texte.bodySmall?.copyWith(
+                                color: couleurs.onSurface,
+                                fontWeight: FontWeight.w600,
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures(),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 6),
-                        Icon(
-                          Icons.copy_rounded,
-                          size: 15,
-                          color: couleurs.onSurfaceVariant,
-                        ),
-                      ],
+                          const SizedBox(width: 6),
+                          Icon(
+                            Icons.copy_rounded,
+                            size: 15,
+                            color: couleurs.onSurfaceVariant,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),

@@ -461,6 +461,9 @@ class _Ligne extends StatelessWidget {
               ).textTheme.bodySmall?.copyWith(color: couleurs.onSurfaceVariant),
             ),
           ),
+          // 19 octobre 2026 : sans espace, un intitulé qui remplit sa colonne
+          // (« Chargé de clientèle ») venait toucher la valeur sur le TECNO.
+          const SizedBox(width: 12),
           Expanded(
             child: Text(
               valeur,
