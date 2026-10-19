@@ -43,6 +43,7 @@ class Depot {
     this.etat = EtatDuDepot.enAttente,
     this.tentatives = 0,
     this.motifDuRefus,
+    this.dernierEssaiLe,
   });
 
   /// Engendré sur l'appareil. ⚠️ Il ne sert qu'ICI, à retrouver le dépôt dans la
@@ -85,7 +86,16 @@ class Depot {
   /// reprendre.
   final String? motifDuRefus;
 
-  Depot avec({EtatDuDepot? etat, int? tentatives, String? motifDuRefus}) {
+  /// L'instant du dernier essai manqué : la file attend d'autant plus longtemps
+  /// avant le suivant que les essais se sont accumulés (19 octobre 2026).
+  final DateTime? dernierEssaiLe;
+
+  Depot avec({
+    EtatDuDepot? etat,
+    int? tentatives,
+    String? motifDuRefus,
+    DateTime? dernierEssaiLe,
+  }) {
     return Depot(
       identifiant: identifiant,
       dossier: dossier,
@@ -94,6 +104,7 @@ class Depot {
       etat: etat ?? this.etat,
       tentatives: tentatives ?? this.tentatives,
       motifDuRefus: motifDuRefus ?? this.motifDuRefus,
+      dernierEssaiLe: dernierEssaiLe ?? this.dernierEssaiLe,
     );
   }
 
@@ -105,6 +116,8 @@ class Depot {
     'etat': etat.name,
     'tentatives': tentatives,
     if (motifDuRefus != null) 'motif_du_refus': motifDuRefus,
+    if (dernierEssaiLe != null)
+      'dernier_essai_le': dernierEssaiLe!.toIso8601String(),
   };
 
   static Depot depuisJson(Map<String, dynamic> json) => Depot(
@@ -115,5 +128,8 @@ class Depot {
     etat: EtatDuDepot.values.byName(json['etat'] as String),
     tentatives: json['tentatives'] as int? ?? 0,
     motifDuRefus: json['motif_du_refus'] as String?,
+    dernierEssaiLe: json['dernier_essai_le'] == null
+        ? null
+        : DateTime.parse(json['dernier_essai_le'] as String),
   );
 }

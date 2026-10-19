@@ -53,13 +53,27 @@ class FileDAttente {
 
   final MagasinDeDepots _magasin;
 
-  /// ⚠️ Au-delà, on cesse d'essayer tout seul et on le montre à l'adhérent.
+  /// Au-delà, l'écran dit que la pièce « n'arrive pas à partir ».
   ///
-  /// Une file qui réessaie sans fin sur un appareil hors réseau vide la batterie
-  /// en une nuit, et l'adhérent ne comprend ni pourquoi ni depuis quand. Six
-  /// tentatives espacées couvrent une coupure de plusieurs heures ; au-delà, ce
-  /// n'est plus une coupure, c'est quelque chose qui demande un geste.
+  /// ⚠️ 19 OCTOBRE 2026 : C'ÉTAIT UN ARRÊT DÉFINITIF, ET IL TOMBAIT EN TROIS MINUTES.
+  /// Le minuteur réessaie toutes les 30 s : six essais manqués sans réseau, et la
+  /// pièce ne repartait plus jamais, alors que l'écran promettait « elles repartent
+  /// toutes seules ». « Envoyer maintenant » la sautait aussi. La file ne renonce
+  /// plus : elle espace ses essais ([attenteApres]), ce qui ménage la batterie
+  /// sans perdre la pièce.
   static const int tentativesMaximales = 6;
+
+  /// Combien attendre après [tentatives] essais manqués : 30 s, 2 min, 10 min,
+  /// 30 min, puis une heure. Le réseau d'un chantier revient rarement en dix
+  /// secondes, et souvent dans l'heure.
+  static Duration attenteApres(int tentatives) => switch (tentatives) {
+    <= 0 => Duration.zero,
+    1 => const Duration(seconds: 30),
+    2 => const Duration(minutes: 2),
+    3 => const Duration(minutes: 10),
+    4 => const Duration(minutes: 30),
+    _ => const Duration(hours: 1),
+  };
 
   /// Ajoute un dépôt à la file.
   Future<void> ajouter(Depot depot) => _magasin.ranger(depot);
@@ -89,11 +103,24 @@ class FileDAttente {
   /// manque pour les suivants : insister ferait vingt tentatives inutiles et
   /// perdrait l'ordre de remise. On rend la main, le prochain réveil reprendra
   /// au même endroit.
-  Future<Vidage> vider(Future<Reponse> Function(Depot) remettre) async {
+  ///
+  /// [forcer] : l'adhérent a appuyé sur « Envoyer maintenant », ou l'application
+  /// revient au premier plan. On essaie sans attendre la fin de l'espacement.
+  Future<Vidage> vider(
+    Future<Reponse> Function(Depot) remettre, {
+    bool forcer = false,
+    DateTime? maintenant,
+  }) async {
+    final instant = maintenant ?? DateTime.now();
     var remis = 0;
     for (final depot in await enAttente()) {
-      if (depot.tentatives >= tentativesMaximales) {
-        continue;
+      final dernier = depot.dernierEssaiLe;
+      if (!forcer &&
+          dernier != null &&
+          instant.isBefore(dernier.add(attenteApres(depot.tentatives)))) {
+        // ⚠️ S'arrêter, et non sauter au suivant : l'ordre de remise compte, et
+        // le réseau qui manquait pour celui-ci manque pour les autres.
+        return Vidage(remis: remis);
       }
       final reponse = await remettre(depot);
       switch (reponse) {
@@ -112,7 +139,12 @@ class FileDAttente {
           // pas un échec du dépôt, c'est un échec de la demande.
           return Vidage(remis: remis, sessionAExpire: true);
         case Reponse.indisponible:
-          await _magasin.ranger(depot.avec(tentatives: depot.tentatives + 1));
+          await _magasin.ranger(
+            depot.avec(
+              tentatives: depot.tentatives + 1,
+              dernierEssaiLe: instant,
+            ),
+          );
           return Vidage(remis: remis);
       }
     }

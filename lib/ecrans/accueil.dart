@@ -118,7 +118,8 @@ class EtatDeLAccueil extends State<EcranAccueil> with WidgetsBindingObserver {
   /// instant-là qu'il faut réessayer, pas trente secondes plus tard.
   @override
   void didChangeAppLifecycleState(AppLifecycleState etat) {
-    if (etat == AppLifecycleState.resumed) _envoyerDiscretement();
+    // Au retour au premier plan, le réseau a souvent changé : on essaie tout de suite.
+    if (etat == AppLifecycleState.resumed) _envoyerDiscretement(forcer: true);
   }
 
   Future<void> _relire() async {
@@ -181,10 +182,10 @@ class EtatDeLAccueil extends State<EcranAccueil> with WidgetsBindingObserver {
   /// ses pièces, mais plus rien ne partira tant que l'adhérent n'est pas
   /// revenu, et il faut donc le lui dire.
   /// ─────────────────────────────────────────────────────────────────────────
-  Future<void> _envoyerDiscretement() async {
+  Future<void> _envoyerDiscretement({bool forcer = false}) async {
     if (_envoiEnCours || _enAttente.isEmpty || !mounted) return;
     setState(() => _envoiEnCours = true);
-    final vidage = await widget.file.vider(widget.remettre);
+    final vidage = await widget.file.vider(widget.remettre, forcer: forcer);
     if (!mounted) return;
     setState(() => _envoiEnCours = false);
     await widget.priseDeVue.effacerLesCopiesDevenuesInutiles();
@@ -234,7 +235,8 @@ class EtatDeLAccueil extends State<EcranAccueil> with WidgetsBindingObserver {
   /// réappuyait indéfiniment sur un bouton qui ne pouvait pas marcher.
   Future<void> _envoyer() async {
     setState(() => _envoiEnCours = true);
-    final vidage = await widget.file.vider(widget.remettre);
+    // L'adhérent a demandé l'envoi : on n'attend pas la fin de l'espacement.
+    final vidage = await widget.file.vider(widget.remettre, forcer: true);
     if (!mounted) return;
     setState(() => _envoiEnCours = false);
     // ⚠️ APRÈS le vidage. Une copie effacée avant l'accusé de réception perd la
@@ -563,6 +565,9 @@ class _Vignette extends StatelessWidget {
   final Depot depot;
   final bool alerte;
 
+  /// Beaucoup d'essais manqués : on le dit, au lieu d'un « en attente » muet.
+  bool get _peine => depot.tentatives >= FileDAttente.tentativesMaximales;
+
   String get _heure {
     String d(int n) => n.toString().padLeft(2, '0');
     return '${d(depot.prisLe.day)}/${d(depot.prisLe.month)} à '
@@ -586,6 +591,9 @@ class _Vignette extends StatelessWidget {
               child: Image.file(
                 File(depot.cheminDuFichier),
                 fit: BoxFit.cover,
+                // Une photo de 2000 px décodée pour un carré de 58 : la mémoire d'un
+                // téléphone d'entrée de gamme ne suit pas une file de vingt pièces.
+                cacheWidth: 180,
                 errorBuilder: (_, _, _) => Container(
                   color: couleurs.surfaceContainer,
                   child: Icon(
@@ -603,7 +611,7 @@ class _Vignette extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Photographiée le $_heure',
+                  'Prise le $_heure',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
@@ -614,11 +622,16 @@ class _Vignette extends StatelessWidget {
                 Text(
                   alerte
                       ? (depot.motifDuRefus ?? "Le cabinet ne l'a pas prise.")
+                      : _peine
+                      ? "N'arrive pas à partir. Elle réessaie seule ; vous pouvez aussi "
+                            'appuyer sur l\'envoi, en haut.'
                       : 'Dossier ${depot.dossier}',
                   style: TextStyle(
                     fontSize: 12.5,
                     height: 1.35,
-                    color: alerte ? couleurs.error : couleurs.onSurfaceVariant,
+                    color: alerte || _peine
+                        ? couleurs.error
+                        : couleurs.onSurfaceVariant,
                   ),
                 ),
               ],

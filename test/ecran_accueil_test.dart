@@ -300,7 +300,7 @@ void main() {
       await poser(testeur);
 
       // ⚠️ « 3 » ne dit pas DE QUELLE facture il s'agit. L'heure, si.
-      expect(find.text('Photographiée le 19/09 à 14h05'), findsOneWidget);
+      expect(find.text('Prise le 19/09 à 14h05'), findsOneWidget);
       expect(find.text('Dossier M081234567890P'), findsOneWidget);
     });
 
