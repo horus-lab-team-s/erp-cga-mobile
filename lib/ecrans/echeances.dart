@@ -828,7 +828,7 @@ class _VoiesDeReglement extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Comment régler ${echeance.titre.toLowerCase()} ?',
+            'Comment régler ${_enMinuscule(echeance.titre)} ?',
             style: theme.textTheme.titleLarge,
           ),
           const SizedBox(height: 18),
@@ -867,4 +867,16 @@ class _VoiesDeReglement extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Le titre au fil de la phrase : seule l'initiale passe en minuscule, et un
+/// sigle reste un sigle. « Cotisations sociales CNPS » devenait « cotisations
+/// sociales cnps » (19 octobre 2026) ; « TVA du mois » reste « TVA du mois ».
+String _enMinuscule(String titre) {
+  if (titre.length < 2) return titre.toLowerCase();
+  final second = titre[1];
+  if (second.toUpperCase() == second && second.toLowerCase() != second) {
+    return titre;
+  }
+  return titre[0].toLowerCase() + titre.substring(1);
 }

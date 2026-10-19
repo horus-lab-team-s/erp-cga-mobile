@@ -259,45 +259,42 @@ class _EtatDeLApercu extends State<EcranApercuDuDepot> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        key: const Key('apercu-reference'),
-                        controller: _reference,
-                        textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
-                          labelText: 'Numéro',
-                          prefixIcon: Icon(Icons.tag),
-                        ),
-                      ),
+                // ⚠️ Le numéro et la date l'un sous l'autre : côte à côte, « FA-2026-0815 »
+                // ne tenait pas dans sa moitié d'écran et s'affichait tronqué.
+                TextField(
+                  key: const Key('apercu-reference'),
+                  controller: _reference,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                    labelText: 'Numéro de la facture',
+                    prefixIcon: Icon(Icons.tag),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                InkWell(
+                  key: const Key('apercu-date'),
+                  onTap: _choisirLaDate,
+                  borderRadius: BorderRadius.circular(12),
+                  child: InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'Date du document',
+                      prefixIcon: Icon(Icons.event_outlined),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: InkWell(
-                        key: const Key('apercu-date'),
-                        onTap: _choisirLaDate,
-                        borderRadius: BorderRadius.circular(12),
-                        child: InputDecorator(
-                          decoration: const InputDecoration(
-                            labelText: 'Date',
-                            prefixIcon: Icon(Icons.event_outlined),
-                          ),
-                          child: Text(
-                            _date == null ? '—' : jourLong(_date!),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ),
+                    child: Text(
+                      _date == null ? 'Touchez pour choisir' : jourLong(_date!),
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  ],
+                  ),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   key: const Key('apercu-montant'),
                   controller: _montant,
                   keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    const _ParTranches(),
+                  ],
                   textInputAction: TextInputAction.next,
                   decoration: const InputDecoration(
                     labelText: 'Montant TTC',
@@ -408,6 +405,30 @@ class _FicheDuScan extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Le montant se lit par tranches de trois chiffres pendant qu'on le tape :
+/// « 184838 » se relisait mal, « 184 838 » se vérifie d'un coup d'œil.
+class _ParTranches extends TextInputFormatter {
+  const _ParTranches();
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue ancien,
+    TextEditingValue nouveau,
+  ) {
+    final chiffres = nouveau.text.replaceAll(RegExp(r'[^0-9]'), '');
+    if (chiffres.isEmpty) return nouveau.copyWith(text: '');
+    final tranches = <String>[];
+    for (var fin = chiffres.length; fin > 0; fin -= 3) {
+      tranches.insert(0, chiffres.substring(fin - 3 < 0 ? 0 : fin - 3, fin));
+    }
+    final texte = tranches.join('\u00A0');
+    return TextEditingValue(
+      text: texte,
+      selection: TextSelection.collapsed(offset: texte.length),
     );
   }
 }

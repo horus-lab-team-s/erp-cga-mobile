@@ -222,7 +222,9 @@ class _EtatDeLaFeuilleDePaiement extends State<FeuilleDePaiement> {
           width: double.infinity,
           child: BoutonDAction(
             key: const Key('confirmer-le-paiement'),
-            libelle: 'Envoyer la demande de ${montantFcfa(widget.montant)}',
+            // Espaces insécables : « 45 000 / F » se coupait, le F seul à la ligne.
+            libelle:
+                'Envoyer la demande de ${montantFcfa(widget.montant).replaceAll(' ', '\u00A0')}',
             libelleEnCours: 'Envoi à l\'opérateur…',
             icone: Icons.send_outlined,
             enCours: _enCours,

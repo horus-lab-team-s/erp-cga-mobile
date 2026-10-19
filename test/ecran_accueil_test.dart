@@ -239,6 +239,8 @@ void main() {
         300,
         scrollable: _defilementDeLApercu(),
       );
+      await testeur.ensureVisible(find.byKey(const Key('apercu-envoyer')));
+      await testeur.pumpAndSettle();
       await testeur.tap(find.byKey(const Key('apercu-envoyer')));
       await pousserJusquAuBandeau(testeur);
 

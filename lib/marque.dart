@@ -616,7 +616,10 @@ ThemeData _theme({
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.all(Radius.circular(Marque.rayonCarte)),
       ),
+      // ⚠️ La famille est nommée : sans elle, les puces tombaient sur la police du
+      // système au lieu d'Inter (relevé le 19 octobre 2026).
       labelStyle: TextStyle(
+        fontFamily: Marque.policeTexte,
         fontSize: 13,
         fontWeight: FontWeight.w600,
         color: encre,
