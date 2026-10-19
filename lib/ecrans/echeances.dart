@@ -120,6 +120,7 @@ class _EtatDesEcheances extends State<EcranEcheances>
     if (espace == null) return;
     final envoyee = await ouvrirUneFeuille<bool>(
       context,
+      glissable: false,
       construire: (_) => FeuilleDePaiement(
         objet: '${e.titre} · ${e.periode}',
         montant: appel.montant,

@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../adaptateurs/numero_memorise.dart';
 import '../domaine/honoraires.dart';
 import '../marque.dart';
 import 'actions.dart';
@@ -44,6 +47,17 @@ class _EtatDeLaFeuilleDePaiement extends State<FeuilleDePaiement> {
   DemandeDeDebit? _sort;
 
   @override
+  void initState() {
+    super.initState();
+    _preremplir();
+  }
+
+  Future<void> _preremplir() async {
+    final connu = await NumeroMemorise.lire();
+    if (connu != null && mounted && _numero.text.isEmpty) _numero.text = connu;
+  }
+
+  @override
   void dispose() {
     _numero.dispose();
     super.dispose();
@@ -66,6 +80,10 @@ class _EtatDeLaFeuilleDePaiement extends State<FeuilleDePaiement> {
       _sort = null;
     });
     final sort = await widget.envoyer(numero);
+    // Sans attendre : la mémoire ne doit pas retenir l'écran.
+    if (sort.sort == SortDuDebit.envoyee) {
+      unawaited(NumeroMemorise.retenir(numero));
+    }
     if (!mounted) return;
     setState(() {
       _enCours = false;
@@ -75,6 +93,13 @@ class _EtatDeLaFeuilleDePaiement extends State<FeuilleDePaiement> {
 
   @override
   Widget build(BuildContext context) {
+    // ⚠️ 19 octobre 2026 : pendant l'envoi, la feuille ne se ferme ni par le retour
+    // ni par un appui à côté. Fermée en route, la demande partait sans que l'écran
+    // le dise, et l'adhérent recommençait.
+    return PopScope(canPop: !_enCours, child: _contenu(context));
+  }
+
+  Widget _contenu(BuildContext context) {
     final theme = Theme.of(context);
     final sort = _sort;
     if (sort?.sort == SortDuDebit.envoyee) {

@@ -262,11 +262,15 @@ enum TonDePastille { neutre, attente, reussite, alerte }
 Future<T?> ouvrirUneFeuille<T>(
   BuildContext context, {
   required WidgetBuilder construire,
+  bool glissable = true,
 }) {
   return showModalBottomSheet<T>(
     context: context,
     isScrollControlled: true,
-    showDragHandle: true,
+    // 19 octobre 2026 : une feuille de paiement ne se ferme pas d'un glissement,
+    // la demande partirait à l'opérateur sans que l'écran le montre.
+    enableDrag: glissable,
+    showDragHandle: glissable,
     useSafeArea: true,
     builder: (contexte) => Padding(
       padding: EdgeInsets.fromLTRB(

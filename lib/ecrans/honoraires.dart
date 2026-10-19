@@ -68,6 +68,7 @@ class _EtatDesHonoraires extends State<EcranHonoraires> {
   Future<void> _payer(PeriodeDHonoraires periode) async {
     final envoyee = await ouvrirUneFeuille<bool>(
       context,
+      glissable: false,
       construire: (_) => FeuilleDePaiement(
         objet: 'Honoraires · ${_periode(periode)}',
         montant: periode.montant,
