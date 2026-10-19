@@ -950,38 +950,74 @@ class _TroisChiffres extends StatelessWidget {
       bool alerte,
       VoidCallback geste,
     ) {
-      final teinte = alerte ? couleurs.error : couleurs.primary;
+      final teinte = switch (cle) {
+        _ when alerte => couleurs.error,
+        'chiffre-documents' => Marque.reussite,
+        'chiffre-retards' => Marque.indigo700,
+        _ => couleurs.primary,
+      };
       final nombre = Text(
         valeur == null ? '–' : '$valeur',
         style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-          color: alerte ? couleurs.error : couleurs.onSurface,
+          fontWeight: FontWeight.w700,
+          color: alerte ? couleurs.error : couleurs.secondary,
         ),
       );
-      final mot = Text(libelle, style: Theme.of(context).textTheme.bodySmall);
+      Widget mot(TextAlign alignement) => Text(
+        libelle,
+        textAlign: alignement,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.25),
+      );
+      // ⚠️ 19 octobre 2026 : l'icône dans un cercle de sa teinte, au centre. Posée
+      // nue dans un coin, elle passait pour une décoration ; dans son cercle, elle
+      // nomme la tuile d'un coup d'œil, avant même qu'on lise le mot.
+      final pastille = Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              teinte.withValues(alpha: 0.10),
+              teinte.withValues(alpha: 0.20),
+            ],
+          ),
+        ),
+        child: Icon(icone, size: 22, color: teinte),
+      );
       return Carte(
         key: Key(cle),
         relief: ReliefDeCarte.liste,
+        lueur: teinte,
         surAppui: geste,
-        padding: const EdgeInsets.all(Marque.espace3),
+        padding: enColonne
+            ? const EdgeInsets.all(Marque.espace3)
+            : const EdgeInsets.fromLTRB(
+                Marque.espace2,
+                Marque.espace4,
+                Marque.espace2,
+                Marque.espace3,
+              ),
         child: enColonne
-            // En colonne : l'icône, le nombre et le mot sur une seule ligne.
+            // En colonne : la pastille, le nombre et le mot sur une seule ligne.
             ? Row(
                 children: [
-                  Icon(icone, size: 22, color: teinte),
+                  pastille,
                   const SizedBox(width: Marque.espace3),
                   nombre,
                   const SizedBox(width: Marque.espace2),
-                  Expanded(child: mot),
+                  Expanded(child: mot(TextAlign.start)),
                 ],
               )
             : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(icone, size: 20, color: teinte),
+                  pastille,
                   const SizedBox(height: Marque.espace2),
                   nombre,
                   const SizedBox(height: 2),
-                  mot,
+                  mot(TextAlign.center),
                 ],
               ),
       );

@@ -59,6 +59,7 @@ class Carte extends StatelessWidget {
     this.ton = TonDeCarte.neutre,
     this.relief = ReliefDeCarte.posee,
     this.surAppui,
+    this.lueur,
   });
 
   final Widget child;
@@ -71,11 +72,15 @@ class Carte extends StatelessWidget {
   /// ne se passe rien à l'écran laisse croire que l'appui n'a pas été pris.
   final VoidCallback? surAppui;
 
+  /// La teinte vers laquelle la carte descend, et qui colore son ombre.
+  /// `null` : l'indigo de la marque, ou la couleur du ton.
+  final Color? lueur;
+
   @override
   Widget build(BuildContext context) {
     final couleurs = Theme.of(context).colorScheme;
     final sombre = Theme.of(context).brightness == Brightness.dark;
-    final rayon = BorderRadius.circular(Marque.rayonCarte);
+    final rayon = BorderRadius.circular(Marque.rayonDeContenant);
 
     final accent = switch (ton) {
       TonDeCarte.neutre => null,
@@ -83,33 +88,83 @@ class Carte extends StatelessWidget {
       TonDeCarte.accent => couleurs.primary,
     };
 
+    // ⚠️ 19 octobre 2026 : PLUS DE CARTE BLANCHE À PLAT. Le blanc pur cerné d'un
+    // filet gris restait le rendu d'un formulaire. La carte descend désormais du
+    // blanc vers une pointe de sa teinte — l'indigo de la marque, ou celle que
+    // l'écran lui donne —, et son ombre est teintée de la même couleur : elle
+    // paraît éclairée plutôt que découpée. Le filet gris disparaît en mode clair ;
+    // un liseré blanc, à peine visible, garde le bord net au soleil.
+    final lueurDeLaCarte = lueur ?? accent ?? Marque.indigo700;
+    final fond = couleurs.surfaceContainerLow;
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: couleurs.surfaceContainerLow,
+        color: fond,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            fond,
+            Color.alphaBlend(
+              lueurDeLaCarte.withValues(alpha: sombre ? 0.12 : 0.075),
+              fond,
+            ),
+          ],
+        ),
         borderRadius: rayon,
         // ⚠️ L'OMBRE NE SE VOIT PAS EN MODE SOMBRE : une ombre est un
         // assombrissement, et l'on n'assombrit pas un fond déjà noir. Le
         // relief y passe donc par un filet, seule solution qui tienne.
         boxShadow: sombre
             ? null
-            : (relief == ReliefDeCarte.posee
-                  ? Marque.ombreCarte
-                  : Marque.ombreListe),
+            : [
+                BoxShadow(
+                  color: lueurDeLaCarte.withValues(alpha: 0.05),
+                  blurRadius: 3,
+                  offset: const Offset(0, 1),
+                ),
+                BoxShadow(
+                  color: lueurDeLaCarte.withValues(
+                    alpha: relief == ReliefDeCarte.posee ? 0.10 : 0.06,
+                  ),
+                  blurRadius: relief == ReliefDeCarte.posee ? 28 : 14,
+                  offset: Offset(0, relief == ReliefDeCarte.posee ? 10 : 4),
+                ),
+              ],
         border: sombre
             ? Border.all(color: couleurs.outlineVariant)
-            : accent == null
-            // ⚠️ Un filet à 60 % de sa force en mode clair : pas pour dessiner
-            // la carte, que l'ombre suffit à poser, mais pour lui garder un
-            // bord net sur les écrans où l'ombre se perd — au soleil, ou sur
-            // une dalle bon marché.
-            ? Border.all(color: couleurs.outlineVariant.withValues(alpha: 0.6))
-            : null,
+            : Border.all(color: Colors.white.withValues(alpha: 0.9)),
       ),
       child: ClipRRect(
         borderRadius: rayon,
         child: _cliquable(
           Stack(
             children: [
+              // Un halo dans le coin haut droit, pour la carte posée seule : la
+              // lumière semble venir de l'écran, et la carte cesse d'être un
+              // rectangle découpé. Pas sur les listes, où dix halos feraient
+              // une tapisserie.
+              if (relief == ReliefDeCarte.posee)
+                Positioned(
+                  top: -48,
+                  right: -48,
+                  child: IgnorePointer(
+                    child: Container(
+                      width: 150,
+                      height: 150,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: RadialGradient(
+                          colors: [
+                            lueurDeLaCarte.withValues(
+                              alpha: sombre ? 0.16 : 0.09,
+                            ),
+                            lueurDeLaCarte.withValues(alpha: 0),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
               Padding(
                 // Le bandeau mange 4 points : le contenu s'en écarte d'autant,
                 // sans quoi le texte viendrait le toucher.
@@ -196,12 +251,40 @@ class TitreDeSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final couleurs = Theme.of(context).colorScheme;
     final texteDuTheme = Theme.of(context).textTheme;
-    final titre = Text(texte, style: texteDuTheme.titleMedium);
+    // ⚠️ 19 octobre 2026 : un trait magenta devant le titre, et le titre en gras
+    // et dans l'encre de l'institution. Le titre gris se confondait avec le texte
+    // courant ; on le cherchait au lieu de le voir.
+    final titre = Row(
+      children: [
+        Container(
+          width: 4,
+          height: 18,
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Marque.magenta600, Marque.indigo700],
+            ),
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: Marque.espace2 + 2),
+        Expanded(
+          child: Text(
+            texte,
+            style: texteDuTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: couleurs.secondary,
+              letterSpacing: -0.1,
+            ),
+          ),
+        ),
+      ],
+    );
     if (complement == null) return titre;
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.baseline,
-      textBaseline: TextBaseline.alphabetic,
       children: [
         Expanded(child: titre),
         complement!,
@@ -335,7 +418,22 @@ class Chapeau extends StatelessWidget {
       padding: const EdgeInsets.all(Marque.espace4),
       decoration: BoxDecoration(
         color: fond,
-        borderRadius: BorderRadius.circular(Marque.rayonCarte),
+        // Le chapeau passe du fond de son ton vers une pointe de magenta : il se
+        // lit comme une surface éclairée, et non plus comme un aplat.
+        gradient: grave
+            ? null
+            : LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  fond,
+                  Color.alphaBlend(
+                    couleurs.primaryContainer.withValues(alpha: 0.9),
+                    fond,
+                  ),
+                ],
+              ),
+        borderRadius: BorderRadius.circular(Marque.rayonDeContenant),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

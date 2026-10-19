@@ -540,18 +540,29 @@ class _TitreDeSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final couleurs = Theme.of(context).colorScheme;
-    final teinte = alerte ? couleurs.error : couleurs.onSurfaceVariant;
+    final teinte = alerte ? couleurs.error : couleurs.secondary;
+    // ⚠️ 19 octobre 2026 : l'icône dans un petit cercle de sa teinte, et le titre
+    // en gras dans l'encre de l'institution. Le gris en petites lettres se lisait
+    // comme une note de bas de page, pas comme le début d'une section.
     return Row(
       children: [
-        Icon(icone, size: 17, color: teinte),
-        const SizedBox(width: 8),
-        Text(
-          texte,
-          style: TextStyle(
-            fontSize: 12.5,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.4,
-            color: teinte,
+        Container(
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: teinte.withValues(alpha: 0.12),
+          ),
+          child: Icon(icone, size: 17, color: teinte),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            texte,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: teinte,
+            ),
           ),
         ),
       ],

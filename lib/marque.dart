@@ -232,6 +232,11 @@ abstract final class Marque {
   /// entre le poste de travail et le téléphone.
   static const rayonCarte = 16.0;
 
+  /// Le rayon des cartes et des chapeaux — et d'eux seuls (19 octobre 2026).
+  /// ⚠️ Quatre points de plus que les champs et les boutons : la carte contient,
+  /// le champ est contenu. Au même rayon, le champ paraissait collé à son bord.
+  static const rayonDeContenant = 20.0;
+
   /// Un bloc posé DANS une carte, un élément de moins de 28 points de haut.
   /// ⚠️ La moitié du rayon de la carte : un bloc intérieur au même rayon que
   /// son contenant donne l'impression d'un cadre qui flotte.
