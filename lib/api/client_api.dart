@@ -256,6 +256,7 @@ class ClientApi
     required String empreinte,
     required DateTime prisLe,
     ConnaissanceDeLaPiece? connaissance,
+    String extension = 'jpg',
   }) async {
     final requete = await _client.postUrl(base.resolve('/collecte/pieces'));
     _poserLaSession(requete);
@@ -275,7 +276,7 @@ class ClientApi
         // Le nom que rend l'appareil photo ne vaut rien non plus : c'est un
         // identifiant technique du sélecteur d'images. On pose donc la date et
         // l'heure de la PRISE DE VUE, qui situent la pièce sans rien inventer.
-        'nom_fichier': _nomDeLaPhoto(prisLe),
+        'nom_fichier': _nomDeLaPhoto(prisLe, extension),
         // ⚠️ La date de la PRISE DE VUE, pas celle de la remise. C'est elle que
         // la comptabilité retient : prendre celle de la remise ferait glisser au
         // mois suivant toute pièce photographiée le 31 au soir sans réseau.
@@ -934,14 +935,19 @@ class ClientApi
   /// ⚠️ Ouvert aux seuls cas d'essai. Le nom le dit, pour que personne ne
   /// l'emploie ailleurs en croyant à une API.
   @visibleForTesting
-  static String nomDeLaPhotoPourEssai(DateTime prisLe) => _nomDeLaPhoto(prisLe);
+  static String nomDeLaPhotoPourEssai(
+    DateTime prisLe, [
+    String extension = 'jpg',
+  ]) => _nomDeLaPhoto(prisLe, extension);
 
-  static String _nomDeLaPhoto(DateTime prisLe) {
+  static String _nomDeLaPhoto(DateTime prisLe, [String extension = 'jpg']) {
     String deuxChiffres(int n) => n.toString().padLeft(2, '0');
     final jour =
         '${prisLe.year}-${deuxChiffres(prisLe.month)}-${deuxChiffres(prisLe.day)}';
     final heure = '${deuxChiffres(prisLe.hour)}${deuxChiffres(prisLe.minute)}';
-    return 'photo-$jour-$heure.jpg';
+    // Un scan reste un scan : « scan-…pdf », et non « photo-…pdf ».
+    final mot = extension == 'jpg' ? 'photo' : 'scan';
+    return '$mot-$jour-$heure.$extension';
   }
 
   // ── L'accueil connecté ───────────────────────────────────────────────────

@@ -142,7 +142,10 @@ class EtatDeLAccueil extends State<EcranAccueil> with WidgetsBindingObserver {
 
   /// Ouvre l'appareil photo (ou la galerie), range la pièce, et rafraîchit la
   /// liste.
-  Future<void> photographier({bool depuisLaGalerie = false}) async {
+  Future<void> photographier({
+    bool depuisLaGalerie = false,
+    bool depuisUnFichier = false,
+  }) async {
     final dossier = await _quelDossier();
     if (dossier == null || !mounted) return;
     // ⚠️ 19 octobre 2026 : l'aperçu AVANT l'envoi. La photo partait sitôt prise ;
@@ -151,13 +154,34 @@ class EtatDeLAccueil extends State<EcranAccueil> with WidgetsBindingObserver {
     while (true) {
       final capture = await widget.priseDeVue.capturer(
         depuisLaGalerie: depuisLaGalerie,
+        depuisUnFichier: depuisUnFichier,
       );
       // ⚠️ Renoncer n'est pas une erreur, et n'appelle aucun message. On ferme
       // l'appareil photo par réflexe bien plus souvent qu'on ne le croit.
       if (capture == null || !mounted) return;
+      // ⚠️ Un scan n'est pas réduit comme une photo : un PDF de trente pages peut
+      // dépasser ce que le serveur accepte. On le dit MAINTENANT, et non par un
+      // refus muet trois jours plus tard dans la file.
+      if (await File(capture.chemin).length() > tailleMaximaleDUnePiece) {
+        await widget.priseDeVue.abandonner(capture);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Ce fichier dépasse 20 Mo. Envoyez-le en plusieurs parties, '
+              'ou photographiez la facture.',
+            ),
+          ),
+        );
+        return;
+      }
+      if (!mounted) return;
       final decision = await Navigator.of(context).push<DecisionDApercu>(
         MaterialPageRoute(
-          builder: (_) => EcranApercuDuDepot(chemin: capture.chemin),
+          builder: (_) => EcranApercuDuDepot(
+            chemin: capture.chemin,
+            unFichier: depuisUnFichier,
+          ),
         ),
       );
       if (decision is EnvoyerLaPiece) {
@@ -355,6 +379,16 @@ class EtatDeLAccueil extends State<EcranAccueil> with WidgetsBindingObserver {
                   icone: Icons.photo_library_outlined,
                   secondaire: true,
                   surAppui: () => photographier(depuisLaGalerie: true),
+                ),
+              ],
+              if (widget.priseDeVue.fichiers != null) ...[
+                const SizedBox(height: 10),
+                BoutonDAction(
+                  key: const Key('bouton-fichier'),
+                  libelle: 'Importer un scan (PDF)',
+                  icone: Icons.upload_file_outlined,
+                  secondaire: true,
+                  surAppui: () => photographier(depuisUnFichier: true),
                 ),
               ],
             ],
@@ -618,21 +652,30 @@ class _Vignette extends StatelessWidget {
             child: SizedBox(
               width: 58,
               height: 58,
-              child: Image.file(
-                File(depot.cheminDuFichier),
-                fit: BoxFit.cover,
-                // Une photo de 2000 px décodée pour un carré de 58 : la mémoire d'un
-                // téléphone d'entrée de gamme ne suit pas une file de vingt pièces.
-                cacheWidth: 180,
-                errorBuilder: (_, _, _) => Container(
-                  color: couleurs.surfaceContainer,
-                  child: Icon(
-                    Icons.image_not_supported_outlined,
-                    size: 22,
-                    color: couleurs.onSurfaceVariant,
-                  ),
-                ),
-              ),
+              child: estUnDocumentPdf(depot.cheminDuFichier)
+                  ? Container(
+                      color: couleurs.errorContainer,
+                      child: Icon(
+                        Icons.picture_as_pdf_outlined,
+                        size: 26,
+                        color: couleurs.error,
+                      ),
+                    )
+                  : Image.file(
+                      File(depot.cheminDuFichier),
+                      fit: BoxFit.cover,
+                      // Une photo de 2000 px décodée pour un carré de 58 : la mémoire d'un
+                      // téléphone d'entrée de gamme ne suit pas une file de vingt pièces.
+                      cacheWidth: 180,
+                      errorBuilder: (_, _, _) => Container(
+                        color: couleurs.surfaceContainer,
+                        child: Icon(
+                          Icons.image_not_supported_outlined,
+                          size: 22,
+                          color: couleurs.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
             ),
           ),
           const SizedBox(width: 12),
@@ -671,4 +714,82 @@ class _Vignette extends StatelessWidget {
       ),
     );
   }
+}
+
+/// D'où vient la pièce à déposer.
+enum SourceDuDepot { appareil, galerie, fichier }
+
+/// Demande à l'adhérent d'où vient sa pièce : photo, galerie ou scan déjà fait
+/// (19 octobre 2026). Rend `null` s'il referme la feuille.
+///
+/// ⚠️ Le bouton central de la barre, lui, ouvre l'appareil photo d'un appui : c'est
+/// le geste de tous les jours. Cette feuille sert quand le cabinet DEMANDE une
+/// pièce, que l'adhérent a souvent déjà reçue en PDF par courriel.
+///
+/// Une seule source branchée : pas de question, on l'ouvre.
+Future<SourceDuDepot?> choisirLaSourceDuDepot(
+  BuildContext context,
+  PriseDeVue priseDeVue,
+) async {
+  if (priseDeVue.galerie == null && priseDeVue.fichiers == null) {
+    return SourceDuDepot.appareil;
+  }
+  return ouvrirUneFeuille<SourceDuDepot>(
+    context,
+    construire: (contexte) {
+      final couleurs = Theme.of(contexte).colorScheme;
+      Widget choix(
+        SourceDuDepot source,
+        IconData icone,
+        String titre,
+        String detail,
+      ) => ListTile(
+        key: Key('source-${source.name}'),
+        contentPadding: EdgeInsets.zero,
+        leading: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: couleurs.primaryContainer,
+          ),
+          child: Icon(icone, color: couleurs.primary, size: 22),
+        ),
+        title: Text(titre, style: Theme.of(contexte).textTheme.titleSmall),
+        subtitle: Text(detail),
+        onTap: () => Navigator.of(contexte).pop(source),
+      );
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Déposer une pièce',
+            style: Theme.of(contexte).textTheme.titleLarge,
+          ),
+          const SizedBox(height: Marque.espace3),
+          choix(
+            SourceDuDepot.appareil,
+            Icons.photo_camera_outlined,
+            'Photographier',
+            'La facture est devant vous, sur papier.',
+          ),
+          if (priseDeVue.galerie != null)
+            choix(
+              SourceDuDepot.galerie,
+              Icons.photo_library_outlined,
+              'Choisir dans la galerie',
+              'Reçue en photo, par WhatsApp par exemple.',
+            ),
+          if (priseDeVue.fichiers != null)
+            choix(
+              SourceDuDepot.fichier,
+              Icons.upload_file_outlined,
+              'Importer un scan (PDF)',
+              'Reçue par courriel, ou scannée au bureau.',
+            ),
+        ],
+      );
+    },
+  );
 }

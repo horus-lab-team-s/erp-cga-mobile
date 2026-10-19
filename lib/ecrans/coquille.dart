@@ -137,14 +137,24 @@ class _EtatDeLaCoquille extends State<Coquille> {
   }
 
   /// Le geste principal : l'onglet de dépôt, puis l'appareil photo, d'un seul appui.
-  void _deposer() {
+  void _deposer([SourceDuDepot source = SourceDuDepot.appareil]) {
     // Le dépôt est le geste principal : un retour un peu plus franc.
     HapticFeedback.mediumImpact();
     if (_onglet != 2) setState(() => _onglet = 2);
     // Après l'image : l'écran de dépôt doit être monté pour ouvrir l'appareil.
     WidgetsBinding.instance.addPostFrameCallback(
-      (_) => _depot.currentState?.photographier(),
+      (_) => _depot.currentState?.photographier(
+        depuisLaGalerie: source == SourceDuDepot.galerie,
+        depuisUnFichier: source == SourceDuDepot.fichier,
+      ),
     );
+  }
+
+  /// 19 octobre 2026 : une pièce que le cabinet demande arrive souvent déjà en PDF.
+  /// On demande d'où elle vient avant d'ouvrir quoi que ce soit.
+  Future<void> _deposerAuChoix() async {
+    final source = await choisirLaSourceDuDepot(context, widget.priseDeVue);
+    if (source != null && mounted) _deposer(source);
   }
 
   Future<void> _lireLesDossiers() async {
@@ -292,6 +302,7 @@ class _EtatDeLaCoquille extends State<Coquille> {
                     allerALOnglet: (i) => i == EcranTableauDeBord.ongletDeposer
                         ? _deposer()
                         : setState(() => _onglet = i),
+                    deposerAuChoix: _deposerAuChoix,
                     ouvrirMesPieces: () => _ouvrirMesPieces(dossiers),
                     ouvrirPiece: widget.fichiers == null ? null : _ouvrirPiece,
                     honorairesDus: _honorairesDus,

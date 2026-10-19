@@ -105,6 +105,7 @@ class _EtatDeLApplication extends State<ApplicationCga> {
       _priseDeVue = PriseDeVue(
         appareil: AppareilPhotoDuSysteme(),
         galerie: GalerieDuSysteme(),
+        fichiers: const FichiersDuSysteme(),
         file: file,
         // ⚠️ Les copies de photos vivent À CÔTÉ de la file, dans le dossier des
         // documents, et non dans un cache. Le système vide les caches quand la

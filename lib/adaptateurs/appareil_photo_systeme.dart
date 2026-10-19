@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../ports/appareil_photo.dart';
@@ -63,5 +64,23 @@ class GalerieDuSysteme implements AppareilPhoto {
       imageQuality: 85,
     );
     return pris?.path;
+  }
+}
+
+/// Les fichiers du téléphone : un scan déjà fait, souvent un PDF reçu par
+/// courriel ou sorti du scanner du bureau (19 octobre 2026).
+///
+/// ⚠️ Pas de réduction ici : on ne recompresse pas un PDF. Le poids est contrôlé
+/// avant l'aperçu, contre la limite du serveur.
+class FichiersDuSysteme implements AppareilPhoto {
+  const FichiersDuSysteme();
+
+  @override
+  Future<String?> photographier() async {
+    final choisi = await FilePicker.pickFile(
+      type: FileType.custom,
+      allowedExtensions: const ['pdf', 'jpg', 'jpeg', 'png'],
+    );
+    return choisi?.path;
   }
 }

@@ -94,7 +94,12 @@ class Carte extends StatelessWidget {
     // l'écran lui donne —, et son ombre est teintée de la même couleur : elle
     // paraît éclairée plutôt que découpée. Le filet gris disparaît en mode clair ;
     // un liseré blanc, à peine visible, garde le bord net au soleil.
-    final lueurDeLaCarte = lueur ?? accent ?? Marque.indigo700;
+    // La teinte par défaut est un lilas, entre l'indigo et le magenta : l'indigo
+    // seul, à cette dose, rendait un gris froid, et la carte paraissait blanche.
+    final lueurDeLaCarte =
+        lueur ??
+        accent ??
+        Color.lerp(Marque.indigo700, Marque.magenta600, 0.45)!;
     final fond = couleurs.surfaceContainerLow;
     return DecoratedBox(
       decoration: BoxDecoration(
@@ -105,7 +110,7 @@ class Carte extends StatelessWidget {
           colors: [
             fond,
             Color.alphaBlend(
-              lueurDeLaCarte.withValues(alpha: sombre ? 0.12 : 0.075),
+              lueurDeLaCarte.withValues(alpha: sombre ? 0.12 : 0.10),
               fond,
             ),
           ],

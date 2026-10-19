@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../composants/actions.dart';
 import '../domaine/connaissance_de_la_piece.dart';
+import '../domaine/prise_de_vue.dart';
 import '../marque.dart';
 
 /// Ce que l'adhérent décide devant l'aperçu.
@@ -39,9 +40,17 @@ class ReprendreLaPhoto extends DecisionDApercu {
 /// précisions vaut mieux qu'une pièce jamais envoyée.
 /// ─────────────────────────────────────────────────────────────────────────────
 class EcranApercuDuDepot extends StatefulWidget {
-  const EcranApercuDuDepot({super.key, required this.chemin});
+  const EcranApercuDuDepot({
+    super.key,
+    required this.chemin,
+    this.unFichier = false,
+  });
 
   final String chemin;
+
+  /// La pièce vient des fichiers du téléphone (un scan), et non de l'appareil :
+  /// on propose d'en choisir un autre, et non de « reprendre la photo ».
+  final bool unFichier;
 
   @override
   State<EcranApercuDuDepot> createState() => _EtatDeLApercu();
@@ -124,69 +133,78 @@ class _EtatDeLApercu extends State<EcranApercuDuDepot> {
       appBar: AppBar(
         backgroundColor: Marque.indigo900,
         foregroundColor: Colors.white,
-        title: const Text('Vérifier la pièce'),
+        title: Text(
+          widget.unFichier ? 'Vérifier le scan' : 'Vérifier la pièce',
+        ),
       ),
       body: ListView(
         padding: EdgeInsets.zero,
         children: [
           // ── L'image, en grand : c'est elle qu'on vérifie d'abord ────────────
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 4, 20, 18),
-            child: GestureDetector(
-              onTap: _agrandir,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(18),
-                child: Stack(
-                  children: [
-                    AspectRatio(
-                      aspectRatio: 3 / 4,
-                      child: Image.file(
-                        File(widget.chemin),
-                        fit: BoxFit.cover,
-                        cacheWidth: 1000,
-                        errorBuilder: (_, _, _) => Container(
-                          color: Marque.indigo700,
-                          child: const Icon(
-                            Icons.image_not_supported_outlined,
-                            color: Colors.white,
-                            size: 40,
+          if (estUnDocumentPdf(widget.chemin))
+            _FicheDuScan(chemin: widget.chemin)
+          else
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 18),
+              child: GestureDetector(
+                onTap: _agrandir,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: Stack(
+                    children: [
+                      AspectRatio(
+                        aspectRatio: 3 / 4,
+                        child: Image.file(
+                          File(widget.chemin),
+                          fit: BoxFit.cover,
+                          cacheWidth: 1000,
+                          errorBuilder: (_, _, _) => Container(
+                            color: Marque.indigo700,
+                            child: const Icon(
+                              Icons.image_not_supported_outlined,
+                              color: Colors.white,
+                              size: 40,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    Positioned(
-                      right: 10,
-                      bottom: 10,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.55),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.zoom_in, color: Colors.white, size: 16),
-                            SizedBox(width: 4),
-                            Text(
-                              'Agrandir',
-                              style: TextStyle(
+                      Positioned(
+                        right: 10,
+                        bottom: 10,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.55),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.zoom_in,
                                 color: Colors.white,
-                                fontSize: 12.5,
+                                size: 16,
                               ),
-                            ),
-                          ],
+                              SizedBox(width: 4),
+                              Text(
+                                'Agrandir',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12.5,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
           // ── Ce que l'adhérent peut en dire ───────────────────────────────────
           Container(
             decoration: BoxDecoration(
@@ -312,8 +330,10 @@ class _EtatDeLApercu extends State<EcranApercuDuDepot> {
                 const SizedBox(height: 10),
                 BoutonDAction(
                   key: const Key('apercu-reprendre'),
-                  libelle: 'Reprendre la photo',
-                  icone: Icons.replay,
+                  libelle: widget.unFichier
+                      ? 'Choisir un autre fichier'
+                      : 'Reprendre la photo',
+                  icone: widget.unFichier ? Icons.folder_open : Icons.replay,
                   secondaire: true,
                   surAppui: () =>
                       Navigator.of(context).pop(const ReprendreLaPhoto()),
@@ -322,6 +342,71 @@ class _EtatDeLApercu extends State<EcranApercuDuDepot> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Un PDF ne s'affiche pas comme une photo : on montre sa fiche, son nom et son
+/// poids, pour que l'adhérent reconnaisse le bon fichier avant de l'envoyer.
+class _FicheDuScan extends StatelessWidget {
+  const _FicheDuScan({required this.chemin});
+
+  final String chemin;
+
+  @override
+  Widget build(BuildContext context) {
+    final fichier = File(chemin);
+    final octets = fichier.existsSync() ? fichier.lengthSync() : 0;
+    final poids = octets < 1024 * 1024
+        ? '${(octets / 1024).ceil()} Ko'
+        : '${(octets / (1024 * 1024)).toStringAsFixed(1).replaceAll('.', ',')} Mo';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 22),
+      child: Container(
+        key: const Key('apercu-scan'),
+        padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+        ),
+        child: Column(
+          children: [
+            Container(
+              width: 72,
+              height: 72,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withValues(alpha: 0.14),
+              ),
+              child: const Icon(
+                Icons.picture_as_pdf_outlined,
+                color: Colors.white,
+                size: 36,
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              'Document PDF · $poids',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Le cabinet le recevra tel quel, toutes ses pages comprises.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.8),
+                fontSize: 13,
+                height: 1.4,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

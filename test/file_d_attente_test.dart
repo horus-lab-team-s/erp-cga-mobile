@@ -3,6 +3,7 @@ import 'package:cga_mobile/domaine/depot.dart';
 import 'package:cga_mobile/api/client_api.dart';
 import 'package:cga_mobile/api/remise.dart';
 import 'package:cga_mobile/domaine/file_d_attente.dart';
+import 'package:cga_mobile/domaine/prise_de_vue.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// ─────────────────────────────────────────────────────────────────────────────
@@ -268,6 +269,17 @@ void main() {
       final nom = ClientApi.nomDeLaPhotoPourEssai(DateTime(2026, 1, 5, 9, 7));
 
       expect(nom, 'photo-2026-01-05-0907.jpg');
+    });
+
+    test('un scan garde son extension, et se dit scan', () {
+      final nom = ClientApi.nomDeLaPhotoPourEssai(
+        DateTime(2026, 10, 19, 14, 5),
+        extensionDeLaPiece('/cache/Facture SONEL.PDF'),
+      );
+
+      expect(nom, 'scan-2026-10-19-1405.pdf');
+      expect(extensionDeLaPiece('/x/IMG_0001.jpeg'), 'jpg');
+      expect(extensionDeLaPiece('/x/sans-extension'), 'jpg');
     });
   });
 }

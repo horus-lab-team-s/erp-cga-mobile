@@ -298,6 +298,62 @@ void main() {
     });
   });
 
+  group('Un scan déjà fait (19 octobre 2026)', () {
+    testWidgets('un PDF passe par sa fiche, garde son extension et part', (
+      testeur,
+    ) async {
+      final scans = _ScanFeint(cache);
+      prise = PriseDeVue(
+        appareil: AppareilFeint(cache),
+        fichiers: scans,
+        file: file,
+        photos: Directory('${racine.path}/photos'),
+      );
+      final remis = <Depot>[];
+      await poser(
+        testeur,
+        remettre: (d) async {
+          remis.add(d);
+          return Reponse.accepte;
+        },
+      );
+
+      await testeur.scrollUntilVisible(
+        find.byKey(const Key('bouton-fichier')),
+        200,
+      );
+      await testeur.runAsync(() async {
+        await testeur.tap(find.byKey(const Key('bouton-fichier')));
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+      });
+      await testeur.pumpAndSettle();
+
+      expect(find.text('Vérifier le scan'), findsOneWidget);
+      expect(find.byKey(const Key('apercu-scan')), findsOneWidget);
+      expect(find.textContaining('Document PDF'), findsOneWidget);
+      await testeur.scrollUntilVisible(
+        find.byKey(const Key('apercu-envoyer')),
+        300,
+        scrollable: _defilementDeLApercu(),
+      );
+      expect(find.text('Choisir un autre fichier'), findsOneWidget);
+      await testeur.ensureVisible(find.byKey(const Key('apercu-envoyer')));
+      await testeur.pumpAndSettle();
+      await testeur.tap(find.byKey(const Key('apercu-envoyer')));
+      await pousserJusquAuBandeau(testeur);
+
+      expect(scans.prises, 1);
+      expect(remis.single.cheminDuFichier, endsWith('.pdf'));
+    });
+
+    testWidgets('sans source de fichiers, on ne propose pas le scan', (
+      testeur,
+    ) async {
+      await poser(testeur);
+      expect(find.byKey(const Key('bouton-fichier')), findsNothing);
+    });
+  });
+
   group("Le verdict, en tête d'écran", () {
     testWidgets('une file vide conclut, au lieu de compter', (testeur) async {
       await poser(testeur);
@@ -663,3 +719,18 @@ Finder _defilementDeLApercu() => find
       matching: find.byType(Scrollable),
     )
     .first;
+
+/// Un scan PDF tel que le rend le sélecteur de fichiers : une copie provisoire.
+class _ScanFeint implements AppareilPhoto {
+  _ScanFeint(this.cache);
+  final Directory cache;
+  int prises = 0;
+
+  @override
+  Future<String?> photographier() async {
+    prises++;
+    final f = File('${cache.path}/facture-$prises.pdf');
+    await f.writeAsBytes('%PDF-1.4 scan'.codeUnits);
+    return f.path;
+  }
+}

@@ -439,6 +439,37 @@ void main() {
     expect(find.text('Mes justificatifs'), findsOneWidget);
   });
 
+  testWidgets(
+    "« Déposer une pièce » demande d'où elle vient, et le scan ouvre les fichiers",
+    (testeur) async {
+      // 19 octobre 2026 : une pièce demandée par le cabinet arrive souvent en PDF.
+      final appareil = AppareilFeint(racine);
+      final fichiers = AppareilFeint(racine);
+      prise = PriseDeVue(
+        appareil: appareil,
+        fichiers: fichiers,
+        file: file,
+        photos: Directory('${racine.path}/photos'),
+      );
+      await poser(testeur);
+
+      await testeur.ensureVisible(
+        find.byKey(const Key('grande-action-deposer')),
+      );
+      await testeur.pumpAndSettle();
+      await testeur.tap(find.byKey(const Key('grande-action-deposer')));
+      await testeur.pumpAndSettle();
+
+      expect(find.byKey(const Key('source-appareil')), findsOneWidget);
+      expect(find.byKey(const Key('source-galerie')), findsNothing);
+      await testeur.tap(find.byKey(const Key('source-fichier')));
+      await testeur.pumpAndSettle();
+
+      expect(fichiers.ouvertures, 1);
+      expect(appareil.ouvertures, 0);
+    },
+  );
+
   testWidgets("Le retour d'Android ramène d'abord à l'accueil", (
     testeur,
   ) async {

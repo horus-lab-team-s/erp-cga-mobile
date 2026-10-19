@@ -43,6 +43,7 @@ class EcranTableauDeBord extends StatefulWidget {
     required this.quandSessionExpire,
     required this.allerALOnglet,
     required this.ouvrirMesPieces,
+    this.deposerAuChoix,
     this.ouvrirPiece,
     this.seDeconnecter,
     this.honorairesDus,
@@ -70,6 +71,13 @@ class EcranTableauDeBord extends StatefulWidget {
   /// Mène à un onglet de la coquille, par son rang.
   final void Function(int) allerALOnglet;
   final VoidCallback ouvrirMesPieces;
+
+  /// Déposer en choisissant la source : photo, galerie ou scan. `null` : on
+  /// ouvre l'onglet de dépôt, comme le bouton central.
+  final VoidCallback? deposerAuChoix;
+
+  void _deposer() =>
+      deposerAuChoix != null ? deposerAuChoix!() : allerALOnglet(ongletDeposer);
 
   /// Ouvre le document d'une pièce déposée. `null` : pas de visionneuse.
   final void Function(String piece)? ouvrirPiece;
@@ -271,8 +279,7 @@ class EtatDuTableauDeBord extends State<EcranTableauDeBord> {
             attendues: m.attendues.length,
             enRetard: e?.periodesEnRetard,
             documents: d?.documents.length,
-            surAttendues: () =>
-                widget.allerALOnglet(EcranTableauDeBord.ongletDeposer),
+            surAttendues: widget._deposer,
             surRetards: () =>
                 widget.allerALOnglet(EcranTableauDeBord.ongletEcheances),
             surDocuments: () =>
@@ -281,10 +288,7 @@ class EtatDuTableauDeBord extends State<EcranTableauDeBord> {
           const SizedBox(height: Marque.espace6),
 
           // ── Le geste principal ───────────────────────────────────────────
-          _GrandeAction(
-            surAppui: () =>
-                widget.allerALOnglet(EcranTableauDeBord.ongletDeposer),
-          ),
+          _GrandeAction(surAppui: widget._deposer),
           const SizedBox(height: Marque.espace6),
 
           // ── Les honoraires dus (18 octobre 2026) ─────────────────────────
@@ -338,7 +342,7 @@ class EtatDuTableauDeBord extends State<EcranTableauDeBord> {
 
           // ── Ce que le cabinet demande ────────────────────────────────────
           if (m.attendues.isNotEmpty) ...[
-            Text('Ce que le cabinet vous demande', style: texte.titleMedium),
+            const TitreDeSection('Ce que le cabinet vous demande'),
             const SizedBox(height: 4),
             Text(
               'Déposez la pièce, ou dites au cabinet où vous en êtes.',
@@ -351,8 +355,7 @@ class EtatDuTableauDeBord extends State<EcranTableauDeBord> {
                 child: _CarteAttendue(
                   attendue: a,
                   repondu: _repondues[a.demande] ?? a.reponse,
-                  surDeposer: () =>
-                      widget.allerALOnglet(EcranTableauDeBord.ongletDeposer),
+                  surDeposer: widget._deposer,
                   surRepondre: (nature) => _repondre(a, nature),
                   surVoirLaPiece:
                       a.pieceARectifier == null || widget.ouvrirPiece == null
@@ -365,7 +368,7 @@ class EtatDuTableauDeBord extends State<EcranTableauDeBord> {
 
           // ── Les échéances ────────────────────────────────────────────────
           if (e != null && e.serveurJoignable) ...[
-            Text('Vos échéances', style: texte.titleMedium),
+            const TitreDeSection('Vos échéances'),
             const SizedBox(height: 10),
             _ResumeDesEcheances(
               echeancier: e,
@@ -377,21 +380,14 @@ class EtatDuTableauDeBord extends State<EcranTableauDeBord> {
 
           // ── Les documents du cabinet ─────────────────────────────────────
           if (d != null && d.serveurJoignable && d.documents.isNotEmpty) ...[
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Déposés pour vous par le cabinet',
-                    style: texte.titleMedium,
-                  ),
-                ),
-                TextButton(
-                  key: const Key('voir-documents'),
-                  onPressed: () =>
-                      widget.allerALOnglet(EcranTableauDeBord.ongletDocuments),
-                  child: const Text('Tout voir'),
-                ),
-              ],
+            TitreDeSection(
+              'Déposés pour vous par le cabinet',
+              complement: TextButton(
+                key: const Key('voir-documents'),
+                onPressed: () =>
+                    widget.allerALOnglet(EcranTableauDeBord.ongletDocuments),
+                child: const Text('Tout voir'),
+              ),
             ),
             const SizedBox(height: 6),
             for (final doc in d.documents.take(2))
@@ -412,7 +408,7 @@ class EtatDuTableauDeBord extends State<EcranTableauDeBord> {
           // action plus haut, et la place centrale de la barre du bas. Le
           // répéter ici en tuile de même taille que « Écrire au cabinet »
           // reviendrait à dire que les deux gestes se valent.
-          Text('Raccourcis', style: texte.titleMedium),
+          const TitreDeSection('Raccourcis'),
           const SizedBox(height: Marque.espace3),
           _Raccourcis(
             surMesPieces: widget.ouvrirMesPieces,
@@ -968,58 +964,91 @@ class _TroisChiffres extends StatelessWidget {
         textAlign: alignement,
         style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.25),
       );
-      // ⚠️ 19 octobre 2026 : l'icône dans un cercle de sa teinte, au centre. Posée
-      // nue dans un coin, elle passait pour une décoration ; dans son cercle, elle
-      // nomme la tuile d'un coup d'œil, avant même qu'on lise le mot.
-      final pastille = Container(
-        width: 44,
-        height: 44,
+      // ⚠️ 19 octobre 2026 : l'icône dans un cercle de sa teinte, à cheval sur le
+      // haut de la tuile. Posée nue dans un coin, elle passait pour une
+      // décoration ; sortie de moitié, elle nomme la tuile d'un coup d'œil et
+      // allège la carte, qui n'a plus à la contenir.
+      //
+      // ⚠️ Le cercle est OPAQUE, et cerclé du fond de page : à moitié dehors, il
+      // laisserait sinon voir le bord de la carte en travers de l'icône.
+      Widget pastille({required bool aCheval}) => Container(
+        width: 46,
+        height: 46,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              teinte.withValues(alpha: 0.10),
-              teinte.withValues(alpha: 0.20),
+          color: Color.alphaBlend(
+            teinte.withValues(alpha: 0.14),
+            couleurs.surfaceContainerLow,
+          ),
+          border: aCheval
+              ? Border.all(color: couleurs.surfaceContainerLowest, width: 3)
+              : null,
+          boxShadow: aCheval
+              ? [
+                  BoxShadow(
+                    color: teinte.withValues(alpha: 0.18),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ]
+              : null,
+        ),
+        child: Icon(icone, size: 21, color: teinte),
+      );
+      if (enColonne) {
+        return Carte(
+          key: Key(cle),
+          relief: ReliefDeCarte.liste,
+          lueur: teinte,
+          surAppui: geste,
+          padding: const EdgeInsets.all(Marque.espace3),
+          // En colonne : la pastille, le nombre et le mot sur une seule ligne.
+          child: Row(
+            children: [
+              pastille(aCheval: false),
+              const SizedBox(width: Marque.espace3),
+              nombre,
+              const SizedBox(width: Marque.espace2),
+              Expanded(child: mot(TextAlign.start)),
             ],
           ),
-        ),
-        child: Icon(icone, size: 22, color: teinte),
-      );
-      return Carte(
-        key: Key(cle),
-        relief: ReliefDeCarte.liste,
-        lueur: teinte,
-        surAppui: geste,
-        padding: enColonne
-            ? const EdgeInsets.all(Marque.espace3)
-            : const EdgeInsets.fromLTRB(
+        );
+      }
+      return Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 23),
+            child: Carte(
+              key: Key(cle),
+              relief: ReliefDeCarte.liste,
+              lueur: teinte,
+              surAppui: geste,
+              padding: const EdgeInsets.fromLTRB(
                 Marque.espace2,
-                Marque.espace4,
+                23 + Marque.espace2,
                 Marque.espace2,
                 Marque.espace3,
               ),
-        child: enColonne
-            // En colonne : la pastille, le nombre et le mot sur une seule ligne.
-            ? Row(
-                children: [
-                  pastille,
-                  const SizedBox(width: Marque.espace3),
-                  nombre,
-                  const SizedBox(width: Marque.espace2),
-                  Expanded(child: mot(TextAlign.start)),
-                ],
-              )
-            : Column(
-                children: [
-                  pastille,
-                  const SizedBox(height: Marque.espace2),
-                  nombre,
-                  const SizedBox(height: 2),
-                  mot(TextAlign.center),
-                ],
+              child: SizedBox(
+                width: double.infinity,
+                child: Column(
+                  children: [
+                    nombre,
+                    const SizedBox(height: 2),
+                    mot(TextAlign.center),
+                  ],
+                ),
               ),
+            ),
+          ),
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: IgnorePointer(child: Center(child: pastille(aCheval: true))),
+          ),
+        ],
       );
     }
 
@@ -1103,7 +1132,7 @@ class _GrandeAction extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'Photographiez votre facture : elle part au cabinet.',
+                      'Photographiez ou importez votre facture : elle part au cabinet.',
                       style: texte.bodySmall?.copyWith(
                         color: Colors.white.withValues(alpha: 0.92),
                       ),
@@ -1155,26 +1184,48 @@ class _Raccourcis extends StatelessWidget {
           for (final (cle, icone, libelle, geste) in tuiles) ...[
             if (cle != 'raccourci-pieces')
               const SizedBox(width: Marque.espace3),
+            // ⚠️ 19 octobre 2026 : PLUS DE CARTE DERRIÈRE CHAQUE RACCOURCI. Trois
+            // cartes de plus sous les chiffres et la grande action faisaient un
+            // écran de boîtes. Un raccourci n'est qu'une porte : une icône dans
+            // son cercle et un mot suffisent, l'appui se voit par l'encre.
             Expanded(
-              child: Carte(
-                key: Key(cle),
-                relief: ReliefDeCarte.liste,
-                surAppui: geste,
-                padding: const EdgeInsets.symmetric(
-                  vertical: Marque.espace3,
-                  horizontal: Marque.espace2,
-                ),
-                child: Column(
-                  children: [
-                    Icon(icone, color: couleurs.primary, size: 20),
-                    const SizedBox(height: Marque.espace2),
-                    Text(
-                      libelle,
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      style: Theme.of(context).textTheme.labelLarge,
+              child: Semantics(
+                button: true,
+                child: InkWell(
+                  key: Key(cle),
+                  onTap: geste,
+                  borderRadius: BorderRadius.circular(Marque.rayonCarte),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: Marque.espace2,
+                      horizontal: Marque.espace1,
                     ),
-                  ],
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: couleurs.secondaryContainer,
+                          ),
+                          child: Icon(
+                            icone,
+                            color: couleurs.secondary,
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(height: Marque.espace2),
+                        Text(
+                          libelle,
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          style: Theme.of(context).textTheme.labelMedium
+                              ?.copyWith(color: couleurs.onSurface),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),

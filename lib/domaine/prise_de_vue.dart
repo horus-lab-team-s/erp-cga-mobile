@@ -38,6 +38,7 @@ class PriseDeVue {
     required this.file,
     required this.photos,
     this.galerie,
+    this.fichiers,
   });
 
   final AppareilPhoto appareil;
@@ -45,6 +46,11 @@ class PriseDeVue {
   /// La galerie, pour une pièce déjà reçue en image (18 octobre 2026). Absente,
   /// le dépôt ne passe que par l'appareil photo.
   final AppareilPhoto? galerie;
+
+  /// Les fichiers du téléphone, pour une pièce déjà SCANNÉE : un PDF reçu par
+  /// courriel, un scan fait au bureau (19 octobre 2026). Absent, on ne le
+  /// propose pas.
+  final AppareilPhoto? fichiers;
   final FileDAttente file;
 
   /// Où vivent les copies durables. Voisin du fichier de la file, et pour la
@@ -64,8 +70,13 @@ class PriseDeVue {
   ///
   /// ⚠️ DEPUIS LA GALERIE, LA MÊME RÈGLE : copie durable, puis file. Le fichier
   /// rendu par la galerie est, lui aussi, une copie provisoire du système.
-  Future<Capture?> capturer({bool depuisLaGalerie = false}) async {
-    final source = depuisLaGalerie ? galerie : appareil;
+  Future<Capture?> capturer({
+    bool depuisLaGalerie = false,
+    bool depuisUnFichier = false,
+  }) async {
+    final source = depuisUnFichier
+        ? fichiers
+        : (depuisLaGalerie ? galerie : appareil);
     if (source == null) {
       return null;
     }
@@ -79,7 +90,9 @@ class PriseDeVue {
     final prisLe = DateTime.now();
     final identifiant = 'D-${prisLe.microsecondsSinceEpoch}';
     await photos.create(recursive: true);
-    final durable = File('${photos.path}/$identifiant.jpg');
+    final durable = File(
+      '${photos.path}/$identifiant.${extensionDeLaPiece(provisoire)}',
+    );
     await File(provisoire).copy(durable.path);
     return Capture(
       identifiant: identifiant,
@@ -197,3 +210,25 @@ class Capture {
   final String chemin;
   final DateTime prisLe;
 }
+
+/// Ce que le serveur accepte pour une pièce : vingt mégaoctets
+/// (`TAILLE_MAXIMALE` de la collecte). Au-delà, il répond 413.
+const tailleMaximaleDUnePiece = 20 * 1024 * 1024;
+
+/// L'extension que garde la copie durable.
+///
+/// ⚠️ Un scan PDF copié en « .jpg » partait au cabinet sous un faux nom, et
+/// l'aperçu tentait de l'afficher comme une image. Le serveur, lui, reconnaît le
+/// type aux premiers octets ; l'extension ne sert qu'à l'écran et au nom lisible.
+String extensionDeLaPiece(String chemin) {
+  final point = chemin.lastIndexOf('.');
+  final extension = point < 0 ? '' : chemin.substring(point + 1).toLowerCase();
+  return switch (extension) {
+    'pdf' || 'png' || 'tif' || 'tiff' => extension,
+    'jpeg' => 'jpg',
+    _ => 'jpg',
+  };
+}
+
+/// Une pièce qui ne s'affiche pas comme une image : on en montre la fiche.
+bool estUnDocumentPdf(String chemin) => extensionDeLaPiece(chemin) == 'pdf';
