@@ -435,9 +435,16 @@ class _EtatDeLaCarte extends State<_Carte> {
                 ),
                 const SizedBox(height: Marque.espace1),
                 Text(
-                  e.periode,
+                  // 19 octobre 2026 : la date limite, l'information n° 1, n'était
+                  // affichée que sur l'accueil.
+                  e.etat.close
+                      ? e.periode
+                      : '${e.periode} · '
+                            '${alerte ? "à payer depuis le" : "à payer avant le"} '
+                            '${jourLong(e.echeanceLe)}',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: couleurs.onSurfaceVariant,
+                    color: alerte ? couleurs.error : couleurs.onSurfaceVariant,
+                    fontWeight: alerte ? FontWeight.w600 : null,
                   ),
                 ),
                 const SizedBox(height: Marque.espace3),

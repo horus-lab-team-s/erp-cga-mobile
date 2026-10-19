@@ -183,6 +183,18 @@ void main() {
       expect(find.text('Chargé de clientèle'), findsOneWidget);
       expect(find.text('CHARGE_CLIENTELE'), findsNothing);
     });
+
+    testWidgets("se joint en un appui : appeler et écrire (19 octobre 2026)", (
+      testeur,
+    ) async {
+      // Sans téléphone connu, pas de bouton d'appel ; le courriel reste joignable.
+      await poser(testeur, fiche: Fiche(entreprise: entreprise()));
+      await testeur.pumpAndSettle();
+
+      expect(find.byKey(const Key('interlocuteur-courriel')), findsOneWidget);
+      expect(find.byKey(const Key('interlocuteur-appeler')), findsNothing);
+      expect(find.byKey(const Key('interlocuteur-whatsapp')), findsNothing);
+    });
   });
 
   group('Signaler un changement', () {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../composants/carte.dart';
+import '../composants/joindre.dart';
 import '../marque.dart';
 import '../domaine/mon_entreprise.dart';
 import '../ports/service_de_session.dart';
@@ -311,6 +312,14 @@ class _Contenu extends StatelessWidget {
                 ),
             ],
           ),
+          // 19 octobre 2026 : le numéro et l'adresse n'étaient que du texte. L'occasion
+          // d'appeler, ou d'écrire sur WhatsApp, était là, sans geste pour la saisir.
+          const SizedBox(height: 10),
+          _JoindreLInterlocuteur(
+            telephone: e.interlocuteur!.telephone,
+            courriel: e.interlocuteur!.courriel,
+            denomination: e.denomination,
+          ),
         ],
 
         // ── Le seul geste ─────────────────────────────────────────────────
@@ -600,6 +609,78 @@ class _RienDuTout extends StatelessWidget {
             height: 1.5,
           ),
         ),
+      ],
+    );
+  }
+}
+
+/// Appeler, écrire sur WhatsApp ou par courriel, en un appui (19 octobre 2026).
+class _JoindreLInterlocuteur extends StatelessWidget {
+  const _JoindreLInterlocuteur({
+    required this.telephone,
+    required this.courriel,
+    required this.denomination,
+  });
+
+  final String? telephone;
+  final String? courriel;
+  final String denomination;
+
+  /// Les chiffres seuls, indicatif du Cameroun compris : sans lui, WhatsApp ouvre
+  /// une conversation avec un numéro étranger.
+  String? get _international {
+    final chiffres = (telephone ?? '').replaceAll(RegExp(r'[^0-9]'), '');
+    if (chiffres.isEmpty) return null;
+    return chiffres.startsWith('237') ? chiffres : '237$chiffres';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final numero = _international;
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        if (numero != null)
+          FilledButton.tonalIcon(
+            key: const Key('interlocuteur-appeler'),
+            onPressed: () => joindre(
+              context,
+              Uri(scheme: 'tel', path: '+$numero'),
+              aCopier: telephone!,
+            ),
+            icon: const Icon(Icons.call_outlined, size: 18),
+            label: const Text('Appeler'),
+          ),
+        if (numero != null)
+          FilledButton.tonalIcon(
+            key: const Key('interlocuteur-whatsapp'),
+            onPressed: () => joindre(
+              context,
+              Uri.https('wa.me', '/$numero', {
+                'text':
+                    'Bonjour, je vous écris au sujet du dossier $denomination.',
+              }),
+              aCopier: telephone!,
+            ),
+            icon: const Icon(Icons.chat_outlined, size: 18),
+            label: const Text('WhatsApp'),
+          ),
+        if (courriel != null)
+          OutlinedButton.icon(
+            key: const Key('interlocuteur-courriel'),
+            onPressed: () => joindre(
+              context,
+              Uri(
+                scheme: 'mailto',
+                path: courriel,
+                queryParameters: {'subject': 'Dossier $denomination'},
+              ),
+              aCopier: courriel!,
+            ),
+            icon: const Icon(Icons.mail_outline, size: 18),
+            label: const Text('Écrire'),
+          ),
       ],
     );
   }
