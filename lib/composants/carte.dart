@@ -107,36 +107,46 @@ class Carte extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: rayon,
-        child: Stack(
-          children: [
-            Padding(
-              // Le bandeau mange 4 points : le contenu s'en écarte d'autant,
-              // sans quoi le texte viendrait le toucher.
-              padding: accent == null
-                  ? EdgeInsets.zero
-                  : const EdgeInsets.only(left: 3),
-              child: Padding(padding: padding, child: child),
-            ),
-            if (accent != null)
-              Positioned(
-                left: 0,
-                top: 0,
-                bottom: 0,
-                // ⚠️ TROIS POINTS, ET NON QUATRE. Sur une liste d'échéances en
-                // retard, le bandeau de quatre points lisait comme une barre
-                // d'erreur pleine hauteur : la page entière paraissait en faute.
-                width: 3,
-                child: ColoredBox(color: accent),
+        child: _cliquable(
+          Stack(
+            children: [
+              Padding(
+                // Le bandeau mange 4 points : le contenu s'en écarte d'autant,
+                // sans quoi le texte viendrait le toucher.
+                padding: accent == null
+                    ? EdgeInsets.zero
+                    : const EdgeInsets.only(left: 3),
+                child: Padding(padding: padding, child: child),
               ),
-            if (surAppui != null)
-              Positioned.fill(
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(onTap: surAppui, child: const SizedBox()),
+              if (accent != null)
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  // ⚠️ TROIS POINTS, ET NON QUATRE. Sur une liste d'échéances en
+                  // retard, le bandeau de quatre points lisait comme une barre
+                  // d'erreur pleine hauteur : la page entière paraissait en faute.
+                  width: 3,
+                  child: ColoredBox(color: accent),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
+      ),
+    );
+  }
+
+  /// ⚠️ 19 octobre 2026 : l'`InkWell` se posait PAR-DESSUS le contenu, et captait
+  /// tous les appuis. Le bouton « copier le numéro » d'un document ouvrait le reçu
+  /// à la place. L'encre est désormais SOUS le contenu : un bouton intérieur garde
+  /// son appui, le reste de la carte ouvre.
+  Widget _cliquable(Widget contenu) {
+    if (surAppui == null) return contenu;
+    return Semantics(
+      button: true,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(onTap: surAppui, child: contenu),
       ),
     );
   }

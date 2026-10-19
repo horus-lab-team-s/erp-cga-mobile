@@ -152,6 +152,35 @@ void main() {
     expect(find.textContaining('copié'), findsOneWidget);
   });
 
+  testWidgets('Sur une carte qui ouvre le reçu, copier copie, et n\'ouvre pas', (
+    testeur,
+  ) async {
+    // 19 octobre 2026 : l'encre de la carte recouvrait le bouton, et l'appui ouvrait
+    // le reçu à la place. Le cas échappait au test, qui ne branchait pas le reçu.
+    final copies = <String>[];
+    final ouverts = <String>[];
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, (appel) async {
+          if (appel.method == 'Clipboard.setData') {
+            copies.add((appel.arguments as Map)['text'] as String);
+          }
+          return null;
+        });
+
+    await poser(
+      testeur,
+      documents: Documents(documents: [document()]),
+      ouvrirLeRecu: (dossier, numero) => ouverts.add(numero),
+    );
+    await testeur.pumpAndSettle();
+
+    await testeur.tap(find.byKey(const Key('copier-DGI-2024-02-121877')));
+    await testeur.pumpAndSettle();
+
+    expect(copies, const ['DGI-2024-02-121877']);
+    expect(ouverts, isEmpty);
+  });
+
   group('La force de la preuve', () {
     testWidgets('un accusé sans justificatif archivé le DIT', (testeur) async {
       // ⚠️ Il repose alors sur la parole de celui qui a saisi le numéro. Le
