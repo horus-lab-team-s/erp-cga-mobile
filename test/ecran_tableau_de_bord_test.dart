@@ -185,6 +185,26 @@ void main() {
       expect(find.textContaining('Réponse transmise'), findsOneWidget);
     });
 
+    testWidgets('une demande répondue sort du compte des pièces à envoyer', (
+      testeur,
+    ) async {
+      // ⚠️ 19 octobre 2026 : la tuile comptait aussi les demandes répondues, et
+      // l'accueil disait 3 sous une phrase qui disait 2.
+      await _poser(testeur);
+      Finder nombre(String texte) => find.descendant(
+        of: find.byKey(const Key('chiffre-attendues')),
+        matching: find.text(texte),
+      );
+      expect(nombre('2'), findsOneWidget);
+
+      final bouton = find.byKey(const Key('PLUS_TARD-DP-2026-010'));
+      await _amener(testeur, bouton);
+      await testeur.tap(bouton);
+      await testeur.pumpAndSettle();
+
+      expect(nombre('1'), findsOneWidget);
+    });
+
     testWidgets('« déjà reçue » n\'est pas présenté comme un échec', (
       testeur,
     ) async {

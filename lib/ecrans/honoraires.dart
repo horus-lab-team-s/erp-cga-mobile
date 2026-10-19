@@ -301,8 +301,14 @@ class _PeriodeDue extends StatelessWidget {
                     Text(_periode(p), style: theme.textTheme.titleMedium),
                     const SizedBox(height: 4),
                     Text(
+                      // ⚠️ 19 octobre 2026 : passé le jour d'exigibilité, la période
+                      // n'est pas encore « en retard » (le cabinet laisse un délai),
+                      // mais « à régler avant le 14 » le 19 se lisait comme une
+                      // erreur. Elle est échue : on le dit.
                       retard
                           ? 'Due depuis le ${jourLong(p.exigibleLe)}'
+                          : _echue(p.exigibleLe)
+                          ? 'Échue le ${jourLong(p.exigibleLe)} : à régler sans tarder'
                           : 'À régler avant le ${jourLong(p.exigibleLe)}',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,
@@ -421,4 +427,10 @@ class _PeriodeReglee extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Le jour d'exigibilité est passé.
+bool _echue(DateTime exigibleLe, [DateTime? maintenant]) {
+  final jour = DateUtils.dateOnly(maintenant ?? DateTime.now());
+  return DateUtils.dateOnly(exigibleLe).isBefore(jour);
 }

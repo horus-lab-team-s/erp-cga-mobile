@@ -276,7 +276,13 @@ class EtatDuTableauDeBord extends State<EcranTableauDeBord> {
           // pour lui — se lisent d'un regard, chacun avec son signe, et chacun
           // mène à l'écran qui le détaille.
           _TroisChiffres(
-            attendues: m.attendues.length,
+            // ⚠️ 19 octobre 2026 : seules les demandes SANS RÉPONSE, comme la phrase
+            // du serveur (« Il manque 2 justificatifs »). La tuile comptait aussi
+            // celles où l'adhérent a déjà dit « je l'envoie la semaine prochaine »,
+            // et l'accueil affichait 3 et 2 l'un sous l'autre.
+            attendues: m.attendues
+                .where((a) => (_repondues[a.demande] ?? a.reponse) == null)
+                .length,
             enRetard: e?.periodesEnRetard,
             documents: d?.documents.length,
             surAttendues: widget._deposer,
@@ -915,7 +921,7 @@ class _TroisChiffres extends StatelessWidget {
         'chiffre-attendues',
         Icons.inbox_outlined,
         attendues,
-        'pièce${attendues > 1 ? "s" : ""} attendue${attendues > 1 ? "s" : ""}',
+        'pièce${attendues > 1 ? "s" : ""} à envoyer',
         attendues > 0,
         surAttendues,
       ),
