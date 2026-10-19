@@ -52,7 +52,21 @@ class ClientApi
         ServiceDesFichiers,
         ServiceDeLEspace {
   ClientApi({required this.base, Uri? vitrine})
-    : vitrine = vitrine ?? Uri.parse(adresseDeLaVitrineParDefaut);
+    : vitrine = vitrine ?? Uri.parse(adresseDeLaVitrineParDefaut) {
+    exigerHttps(base);
+  }
+
+  /// ⚠️ 19 octobre 2026 (audit de sécurité) : l'adresse du serveur venait de
+  /// `--dart-define`, et rien n'empêchait de publier une version qui parle en clair.
+  /// `dart:io` ne lit pas la configuration réseau d'Android : seul ce contrôle
+  /// garantit qu'une version publiée n'envoie ni mot de passe ni session en clair.
+  static void exigerHttps(Uri adresse, {bool enPublication = kReleaseMode}) {
+    if (enPublication && adresse.scheme != 'https') {
+      throw StateError(
+        'Version publiée : l\'adresse du serveur doit être en https ($adresse).',
+      );
+    }
+  }
 
   /// L'adresse du site public, d'où viennent les images des articles et les
   /// logos des institutions.

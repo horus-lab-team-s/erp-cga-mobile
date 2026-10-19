@@ -20,7 +20,9 @@
         android:label="CGA Broad Range"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
-        android:networkSecurityConfig="@xml/reseau">
+        android:networkSecurityConfig="@xml/reseau"
+        android:allowBackup="false"
+        android:fullBackupContent="false">
         <activity
             android:name=".MainActivity"
             android:exported="true"
