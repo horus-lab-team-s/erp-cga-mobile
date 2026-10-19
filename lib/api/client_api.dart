@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../domaine/connaissance_de_la_piece.dart';
 import '../domaine/document_recu.dart';
 import '../domaine/echeance.dart';
 import '../domaine/file_d_attente.dart';
@@ -254,6 +255,7 @@ class ClientApi
     required String entreprise,
     required String empreinte,
     required DateTime prisLe,
+    ConnaissanceDeLaPiece? connaissance,
   }) async {
     final requete = await _client.postUrl(base.resolve('/collecte/pieces'));
     _poserLaSession(requete);
@@ -282,6 +284,8 @@ class ClientApi
         // ce n'est plus un dépôt mais une reprise d'historique, et il répond 422
         // — un refus, à juste titre.
         'depose_le': prisLe.toIso8601String().split('T').first,
+        // 19 octobre 2026 : ce que l'adhérent a dit de sa pièce, s'il l'a dit.
+        ...?connaissance?.versLaRemise(),
       }),
     );
     final reponse = await requete.close();

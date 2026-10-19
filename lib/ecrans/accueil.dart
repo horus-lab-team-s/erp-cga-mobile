@@ -12,6 +12,7 @@ import '../domaine/depot.dart';
 import '../ports/service_de_session.dart';
 import '../domaine/file_d_attente.dart';
 import '../domaine/prise_de_vue.dart';
+import 'apercu_du_depot.dart';
 
 /// L'écran d'après la connexion : l'état de la file, et rien d'autre pour
 /// l'instant.
@@ -144,16 +145,33 @@ class EtatDeLAccueil extends State<EcranAccueil> with WidgetsBindingObserver {
   Future<void> photographier({bool depuisLaGalerie = false}) async {
     final dossier = await _quelDossier();
     if (dossier == null || !mounted) return;
-    final depot = await widget.priseDeVue.pour(
-      dossier,
-      depuisLaGalerie: depuisLaGalerie,
-    );
-    if (!mounted) return;
-    if (depot == null) {
+    // ⚠️ 19 octobre 2026 : l'aperçu AVANT l'envoi. La photo partait sitôt prise ;
+    // une facture coupée ou floue revenait trois jours plus tard. On la revoit, on
+    // la décrit si l'on veut, puis on l'envoie, ou on la reprend.
+    while (true) {
+      final capture = await widget.priseDeVue.capturer(
+        depuisLaGalerie: depuisLaGalerie,
+      );
       // ⚠️ Renoncer n'est pas une erreur, et n'appelle aucun message. On ferme
       // l'appareil photo par réflexe bien plus souvent qu'on ne le croit.
-      return;
+      if (capture == null || !mounted) return;
+      final decision = await Navigator.of(context).push<DecisionDApercu>(
+        MaterialPageRoute(
+          builder: (_) => EcranApercuDuDepot(chemin: capture.chemin),
+        ),
+      );
+      if (decision is EnvoyerLaPiece) {
+        await widget.priseDeVue.mettreEnFile(
+          dossier,
+          capture,
+          connaissance: decision.connaissance,
+        );
+        break;
+      }
+      await widget.priseDeVue.abandonner(capture);
+      if (decision is! ReprendreLaPhoto || !mounted) return;
     }
+    if (!mounted) return;
     await _relire();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'package:path_provider/path_provider.dart';
 
@@ -138,6 +139,11 @@ class _EtatDeLApplication extends State<ApplicationCga> {
       // jugée « vraiment moche ». L'espace adhérent web est clair et doux ; le mobile
       // lui ressemble désormais. Le thème sombre reste dans `marque.dart`, inemployé.
       themeMode: ThemeMode.light,
+      // 19 octobre 2026 : le français pour les textes du système (sélecteur de date,
+      // « Coller », « Annuler »), qui s'affichaient en anglais.
+      locale: const Locale('fr'),
+      supportedLocales: const [Locale('fr')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       home: switch ((_file, _connecte)) {
         // Le temps d'ouvrir la file. C'est immédiat en pratique, mais rendre
         // l'accueil avant qu'elle existe afficherait « rien en attente » à

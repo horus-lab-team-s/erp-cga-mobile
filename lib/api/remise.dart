@@ -58,6 +58,7 @@ class Remise {
         entreprise: depot.dossier,
         empreinte: depose.empreinte!,
         prisLe: depot.prisLe,
+        connaissance: depot.connaissance,
       );
       return creee.reponse;
     } on SocketException {

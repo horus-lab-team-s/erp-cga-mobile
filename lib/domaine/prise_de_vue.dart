@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../ports/appareil_photo.dart';
+import 'connaissance_de_la_piece.dart';
 import 'depot.dart';
 import 'file_d_attente.dart';
 
@@ -50,12 +51,20 @@ class PriseDeVue {
   /// même raison : le système ne reprend pas le dossier des documents.
   final Directory photos;
 
-  /// Photographie une pièce et la met en file. Rend le dépôt créé, ou `null` si
-  /// la personne a renoncé.
+  /// Photographie une pièce et la met en file, d'un trait. Rend le dépôt créé, ou
+  /// `null` si la personne a renoncé.
+  Future<Depot?> pour(String dossier, {bool depuisLaGalerie = false}) async {
+    final capture = await capturer(depuisLaGalerie: depuisLaGalerie);
+    if (capture == null) return null;
+    return mettreEnFile(dossier, capture);
+  }
+
+  /// Le premier temps (19 octobre 2026) : l'image, copiée hors du cache, PAS encore
+  /// en file. L'adhérent la revoit, la décrit s'il veut, puis l'envoie ou y renonce.
   ///
   /// ⚠️ DEPUIS LA GALERIE, LA MÊME RÈGLE : copie durable, puis file. Le fichier
   /// rendu par la galerie est, lui aussi, une copie provisoire du système.
-  Future<Depot?> pour(String dossier, {bool depuisLaGalerie = false}) async {
+  Future<Capture?> capturer({bool depuisLaGalerie = false}) async {
     final source = depuisLaGalerie ? galerie : appareil;
     if (source == null) {
       return null;
@@ -69,19 +78,42 @@ class PriseDeVue {
     // mois suivant toute pièce photographiée le 31 au soir sans réseau.
     final prisLe = DateTime.now();
     final identifiant = 'D-${prisLe.microsecondsSinceEpoch}';
-
     await photos.create(recursive: true);
     final durable = File('${photos.path}/$identifiant.jpg');
     await File(provisoire).copy(durable.path);
-
-    final depot = Depot(
+    return Capture(
       identifiant: identifiant,
-      dossier: dossier,
-      cheminDuFichier: durable.path,
+      chemin: durable.path,
       prisLe: prisLe,
+    );
+  }
+
+  /// Le second temps : la capture entre en file, avec ce que l'adhérent en a dit.
+  Future<Depot> mettreEnFile(
+    String dossier,
+    Capture capture, {
+    ConnaissanceDeLaPiece? connaissance,
+  }) async {
+    final depot = Depot(
+      identifiant: capture.identifiant,
+      dossier: dossier,
+      cheminDuFichier: capture.chemin,
+      prisLe: capture.prisLe,
+      connaissance: connaissance == null || connaissance.vide
+          ? null
+          : connaissance,
     );
     await file.ajouter(depot);
     return depot;
+  }
+
+  /// L'adhérent renonce à une capture : sa copie ne doit pas remplir le téléphone.
+  Future<void> abandonner(Capture capture) async {
+    try {
+      await File(capture.chemin).delete();
+    } on Object {
+      // Déjà partie : rien à faire.
+    }
   }
 
   /// Photographie une pièce et en garde une copie durable, SANS la mettre en
@@ -151,4 +183,17 @@ class PriseDeVue {
     }
     return effacees;
   }
+}
+
+/// Une image copiée hors du cache, en attente de la décision de l'adhérent.
+class Capture {
+  const Capture({
+    required this.identifiant,
+    required this.chemin,
+    required this.prisLe,
+  });
+
+  final String identifiant;
+  final String chemin;
+  final DateTime prisLe;
 }

@@ -9,6 +9,7 @@ import 'package:cga_mobile/domaine/mon_entreprise.dart';
 import 'package:cga_mobile/domaine/preuve.dart';
 import 'package:cga_mobile/domaine/piece_remise.dart';
 import 'package:cga_mobile/domaine/prise_de_vue.dart';
+import 'package:cga_mobile/ecrans/apercu_du_depot.dart';
 import 'package:cga_mobile/ecrans/accueil.dart';
 import 'package:cga_mobile/marque.dart';
 import 'package:cga_mobile/ports/appareil_photo.dart';
@@ -197,9 +198,48 @@ void main() {
         file: file,
         photos: Directory('${racine.path}/photos'),
       );
-      await poser(testeur);
+      final remis = <Depot>[];
+      await poser(
+        testeur,
+        remettre: (d) async {
+          remis.add(d);
+          return Reponse.accepte;
+        },
+      );
 
-      await testeur.tap(find.byKey(const Key('bouton-galerie')));
+      await testeur.runAsync(() async {
+        await testeur.tap(find.byKey(const Key('bouton-galerie')));
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      });
+      await testeur.pumpAndSettle();
+
+      // 19 octobre 2026 : l'aperçu AVANT l'envoi, et ce que l'adhérent en dit.
+      expect(find.text('Vérifier la pièce'), findsOneWidget);
+      await testeur.scrollUntilVisible(
+        find.byKey(const Key('nature-FACTURE_ACHAT')),
+        300,
+        scrollable: _defilementDeLApercu(),
+      );
+      await testeur.ensureVisible(
+        find.byKey(const Key('nature-FACTURE_ACHAT')),
+      );
+      await testeur.pumpAndSettle();
+      await testeur.tap(find.byKey(const Key('nature-FACTURE_ACHAT')));
+      await testeur.pump();
+      await testeur.enterText(
+        find.byKey(const Key('apercu-emetteur')),
+        'QUINCAILLERIE DU WOURI',
+      );
+      await testeur.enterText(
+        find.byKey(const Key('apercu-montant')),
+        '178875',
+      );
+      await testeur.scrollUntilVisible(
+        find.byKey(const Key('apercu-envoyer')),
+        300,
+        scrollable: _defilementDeLApercu(),
+      );
+      await testeur.tap(find.byKey(const Key('apercu-envoyer')));
       await pousserJusquAuBandeau(testeur);
 
       expect(galerie.prises, 1);
@@ -207,6 +247,54 @@ void main() {
         find.text('Enregistrée. Elle partira toute seule.'),
         findsOneWidget,
       );
+      final remise = remis.single.connaissance!.versLaRemise();
+      expect(remise['type'], 'FACTURE_ACHAT');
+      expect(remise['emetteur'], 'QUINCAILLERIE DU WOURI');
+      expect(remise['montant_ttc'], 178875);
+      expect(
+        remise.containsKey('commentaire'),
+        isFalse,
+        reason: 'rien de vide ne part',
+      );
+    });
+
+    testWidgets('reprendre la photo rouvre la source, sans rien mettre en file', (
+      testeur,
+    ) async {
+      final galerie = AppareilFeint(cache);
+      prise = PriseDeVue(
+        appareil: AppareilFeint(cache),
+        galerie: galerie,
+        file: file,
+        photos: Directory('${racine.path}/photos'),
+      );
+      await poser(testeur);
+
+      await testeur.runAsync(() async {
+        await testeur.tap(find.byKey(const Key('bouton-galerie')));
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      });
+      await testeur.pumpAndSettle();
+      await testeur.scrollUntilVisible(
+        find.byKey(const Key('apercu-reprendre')),
+        300,
+        scrollable: _defilementDeLApercu(),
+      );
+      await testeur.ensureVisible(find.byKey(const Key('apercu-reprendre')));
+      await testeur.pumpAndSettle();
+      await testeur.tap(find.byKey(const Key('apercu-reprendre')));
+      // La copie s'efface et la source se rouvre : du disque, hors de l'horloge feinte.
+      for (var i = 0; i < 6; i++) {
+        await testeur.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 40)),
+        );
+        await testeur.pump(const Duration(milliseconds: 100));
+      }
+      await testeur.pumpAndSettle();
+
+      expect(galerie.prises, 2);
+      expect(find.text('Vérifier la pièce'), findsOneWidget);
+      expect(await file.enAttente(), isEmpty);
     });
   });
 
@@ -567,3 +655,11 @@ void main() {
     });
   });
 }
+
+/// La liste de l'aperçu, et non celle de l'écran de dépôt qu'il recouvre.
+Finder _defilementDeLApercu() => find
+    .descendant(
+      of: find.byType(EcranApercuDuDepot),
+      matching: find.byType(Scrollable),
+    )
+    .first;

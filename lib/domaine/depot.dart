@@ -16,6 +16,8 @@
 /// ─────────────────────────────────────────────────────────────────────────────
 library;
 
+import 'connaissance_de_la_piece.dart';
+
 /// Où en est un dépôt dans son voyage vers le serveur.
 enum EtatDuDepot {
   /// Enregistré sur l'appareil, pas encore parti.
@@ -44,6 +46,7 @@ class Depot {
     this.tentatives = 0,
     this.motifDuRefus,
     this.dernierEssaiLe,
+    this.connaissance,
   });
 
   /// Engendré sur l'appareil. ⚠️ Il ne sert qu'ICI, à retrouver le dépôt dans la
@@ -90,6 +93,9 @@ class Depot {
   /// avant le suivant que les essais se sont accumulés (19 octobre 2026).
   final DateTime? dernierEssaiLe;
 
+  /// Ce que l'adhérent a dit de la pièce avant de l'envoyer, s'il l'a dit.
+  final ConnaissanceDeLaPiece? connaissance;
+
   Depot avec({
     EtatDuDepot? etat,
     int? tentatives,
@@ -105,6 +111,7 @@ class Depot {
       tentatives: tentatives ?? this.tentatives,
       motifDuRefus: motifDuRefus ?? this.motifDuRefus,
       dernierEssaiLe: dernierEssaiLe ?? this.dernierEssaiLe,
+      connaissance: connaissance,
     );
   }
 
@@ -118,6 +125,7 @@ class Depot {
     if (motifDuRefus != null) 'motif_du_refus': motifDuRefus,
     if (dernierEssaiLe != null)
       'dernier_essai_le': dernierEssaiLe!.toIso8601String(),
+    if (connaissance != null) 'connaissance': connaissance!.versJson(),
   };
 
   static Depot depuisJson(Map<String, dynamic> json) => Depot(
@@ -131,5 +139,10 @@ class Depot {
     dernierEssaiLe: json['dernier_essai_le'] == null
         ? null
         : DateTime.parse(json['dernier_essai_le'] as String),
+    connaissance: json['connaissance'] is Map<String, dynamic>
+        ? ConnaissanceDeLaPiece.depuisJson(
+            json['connaissance'] as Map<String, dynamic>,
+          )
+        : null,
   );
 }
