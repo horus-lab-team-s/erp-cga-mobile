@@ -691,7 +691,7 @@ void main() {
       await poser(testeur, ouvrirLHistorique: () => ouvert++);
 
       expect(find.byKey(const Key('vers-historique')), findsOneWidget);
-      expect(find.text("Tout ce que j'ai envoyé"), findsOneWidget);
+      expect(find.text('Mes pièces envoyées'), findsOneWidget);
       // ⚠️ La pièce jointe est annoncée : c'est elle qu'on vient chercher, pas
       // une ligne de journal.
       expect(find.textContaining('le document de chacune'), findsOneWidget);

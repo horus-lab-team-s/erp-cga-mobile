@@ -8,6 +8,14 @@
          qu'aucun essai en développement ne peut révéler, puisque le profil de
          développement la donne. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 20 octobre 2026 : les rappels d'échéances, posés sur le téléphone (J-3 et
+         J-1). Android 13 demande la permission d'afficher une notification : elle
+         se demande quand l'adhérent active les rappels, jamais à l'ouverture. Le
+         redémarrage du téléphone efface les alarmes ; ce récepteur les repose.
+         ⚠️ Pas d'alarme EXACTE : la permission en est refusée par défaut depuis
+         Android 14, et un rappel à 9 h 07 ne fait de tort à personne. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <!-- ⚠️ `android:label` est le nom SOUS L'ICÔNE, dans le tiroir
          d'applications. C'était « cga_mobile », le nom technique du projet :
          l'adhérent cherchait « CGA » et ne trouvait rien. Court, parce
@@ -45,6 +53,19 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <receiver
+            android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />
+        <receiver
+            android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

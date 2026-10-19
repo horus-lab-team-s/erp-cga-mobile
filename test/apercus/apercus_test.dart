@@ -249,7 +249,7 @@ void main() {
       'honoraires',
       EcranHonoraires(
         espace: espace,
-        dossiers: dossiers,
+        dossier: dossiers.first,
         quandSessionExpire: () {},
         ouvrirDocument: (_, _) {},
       ),
@@ -279,7 +279,7 @@ void main() {
       'ma-dsf',
       EcranMaDsf(
         espace: espace,
-        dossiers: dossiers,
+        dossier: dossiers.first,
         priseDeVue: prise,
         quandSessionExpire: () {},
         ouvrirDocument: (_, _) {},
@@ -293,7 +293,7 @@ void main() {
       'ma-paie',
       EcranMaPaie(
         espace: espace,
-        dossiers: dossiers,
+        dossier: dossiers.first,
         quandSessionExpire: () {},
         aujourdHui: DateTime(2026, 10, 18),
       ),
@@ -315,7 +315,7 @@ void main() {
       'echeances',
       EcranEcheances(
         session: session,
-        dossiers: dossiers,
+        dossier: dossiers.first,
         quandSessionExpire: () {},
         priseDeVue: prise,
         espace: espace,
@@ -351,7 +351,7 @@ void main() {
       'documents',
       EcranDocuments(
         session: session,
-        dossiers: dossiers,
+        dossier: dossiers.first,
         quandSessionExpire: () {},
         ouvrirLHistorique: () {},
         ouvrirLeRecu: (_, _) {},

@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../composants/actions.dart';
 import '../composants/carte.dart';
+import '../composants/etat.dart';
 import '../composants/paiement.dart';
 import '../domaine/honoraires.dart';
+import '../domaine/suivi_du_paiement.dart';
 import '../marque.dart';
 import '../ports/service_de_l_espace.dart';
 
@@ -29,14 +31,22 @@ class EcranHonoraires extends StatefulWidget {
   const EcranHonoraires({
     super.key,
     required this.espace,
-    required this.dossiers,
+    required this.dossier,
     required this.quandSessionExpire,
     required this.ouvrirDocument,
+    this.apresLecture,
   });
 
   final ServiceDeLEspace espace;
-  final List<String> dossiers;
+
+  /// ⚠️ 20 octobre 2026 : LE dossier choisi dans l'en-tête de l'accueil, et non plus
+  /// une liste dont l'écran prenait le premier. Un adhérent à deux entreprises
+  /// choisissait la seconde sur l'accueil et lisait les honoraires de la première.
+  final String dossier;
   final VoidCallback quandSessionExpire;
+
+  /// Chaque lecture réussie, pour les rappels d'échéances posés sur le téléphone.
+  final void Function(MesHonoraires)? apresLecture;
 
   /// Ouvre un PDF servi par une route (note, reçu, facture) dans la visionneuse.
   final void Function(String chemin, String titre) ouvrirDocument;
@@ -46,8 +56,11 @@ class EcranHonoraires extends StatefulWidget {
 }
 
 class _EtatDesHonoraires extends State<EcranHonoraires> {
-  late String _dossier = widget.dossiers.first;
   Lecture<MesHonoraires>? _lecture;
+
+  /// Les périodes dont la demande de débit est partie, et que l'opérateur n'a pas
+  /// encore confirmées. Voir `suivreLePaiement`.
+  final _enAttenteDeValidation = <String>{};
 
   @override
   void initState() {
@@ -55,15 +68,39 @@ class _EtatDesHonoraires extends State<EcranHonoraires> {
     _relire();
   }
 
+  @override
+  void didUpdateWidget(EcranHonoraires ancien) {
+    super.didUpdateWidget(ancien);
+    if (ancien.dossier != widget.dossier) {
+      setState(() {
+        _lecture = null;
+        _enAttenteDeValidation.clear();
+      });
+      _relire();
+    }
+  }
+
   Future<void> _relire() async {
-    final lue = await widget.espace.mesHonoraires(_dossier);
+    final lue = await widget.espace.mesHonoraires(widget.dossier);
     if (!mounted) return;
     if (lue.sessionAExpire) {
       widget.quandSessionExpire();
       return;
     }
-    setState(() => _lecture = lue);
+    final h = lue.valeur;
+    setState(() {
+      _lecture = lue;
+      // Une période constatée réglée perd sa mention, quelle que soit la lecture
+      // qui l'a vue passer.
+      if (h != null && lue.copieDu == null) {
+        _enAttenteDeValidation.removeWhere((cle) => !_encoreDue(h, cle));
+      }
+    });
+    if (h != null && lue.copieDu == null) widget.apresLecture?.call(h);
   }
+
+  static bool _encoreDue(MesHonoraires h, String cle) =>
+      h.periodes.any((p) => p.cle == cle && p.etat != EtatDHonoraires.reglee);
 
   Future<void> _payer(PeriodeDHonoraires periode) async {
     final envoyee = await ouvrirUneFeuille<bool>(
@@ -73,7 +110,7 @@ class _EtatDesHonoraires extends State<EcranHonoraires> {
         objet: 'Honoraires · ${_periode(periode)}',
         montant: periode.montant,
         envoyer: (telephone) => widget.espace.demanderLeDebit(
-          dossier: _dossier,
+          dossier: widget.dossier,
           periode: periode.cle,
           telephone: telephone,
         ),
@@ -81,52 +118,41 @@ class _EtatDesHonoraires extends State<EcranHonoraires> {
             'La période passera à « Réglée » dès que l\'opérateur nous l\'aura confirmé.',
       ),
     );
-    if (envoyee == true) await _relire();
+    if (envoyee != true || !mounted) return;
+    setState(() => _enAttenteDeValidation.add(periode.cle));
+    final reglee = await suivreLePaiement(
+      continuer: () => mounted,
+      estRegle: () async {
+        await _relire();
+        return !_enAttenteDeValidation.contains(periode.cle);
+      },
+    );
+    if (reglee && mounted) {
+      annoncer(
+        context,
+        'Paiement reçu : la période « ${_periode(periode)} » est réglée.',
+      );
+    }
   }
 
   String get _base =>
-      '/souscription/honoraires/${Uri.encodeComponent(_dossier)}';
+      '/souscription/honoraires/${Uri.encodeComponent(widget.dossier)}';
 
   @override
   Widget build(BuildContext context) {
     final lecture = _lecture;
     final h = lecture?.valeur;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Mes honoraires'),
-        actions: [
-          if (widget.dossiers.length > 1)
-            PopupMenuButton<String>(
-              initialValue: _dossier,
-              tooltip: 'Changer de dossier',
-              icon: const Icon(Icons.folder_outlined),
-              onSelected: (d) {
-                setState(() {
-                  _dossier = d;
-                  _lecture = null;
-                });
-                _relire();
-              },
-              itemBuilder: (_) => [
-                for (final d in widget.dossiers)
-                  PopupMenuItem(value: d, child: Text(d)),
-              ],
-            ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Mes honoraires')),
       body: RefreshIndicator(
         onRefresh: _relire,
         child: switch ((lecture, h)) {
-          (null, _) => const Center(child: CircularProgressIndicator()),
-          (_, null) => EtatVide(
-            titre: 'Pas de réseau',
-            detail:
+          (null, _) => const Squelette(),
+          (final Lecture<MesHonoraires> l, null) => EtatDePanne(
+            serveurEnPanne: l.serveurEnPanne,
+            horsLigne:
                 'Vos honoraires se lisent sur le serveur. Ils reparaîtront dès que la connexion revient.',
-            icone: Icons.wifi_off_outlined,
-            action: OutlinedButton(
-              onPressed: _relire,
-              child: const Text('Réessayer'),
-            ),
+            reessayer: _relire,
           ),
           (_, final MesHonoraires x) when !x.aUnContrat => const EtatVide(
             titre: 'Aucun contrat d\'honoraires',
@@ -134,8 +160,11 @@ class _EtatDesHonoraires extends State<EcranHonoraires> {
                 'Le cabinet ne vous a encore rien facturé. Votre chargé de clientèle vous dira quand il le fera.',
             icone: Icons.receipt_long_outlined,
           ),
-          (_, final MesHonoraires x) => _Contenu(
+          (final Lecture<MesHonoraires> l, final MesHonoraires x) => _Contenu(
             honoraires: x,
+            copieDu: l.copieDu,
+            serveurEnPanne: l.serveurEnPanne,
+            enAttenteDeValidation: _enAttenteDeValidation,
             payer: _payer,
             ouvrir: (chemin, titre) =>
                 widget.ouvrirDocument('$_base$chemin', titre),
@@ -151,9 +180,17 @@ class _Contenu extends StatelessWidget {
     required this.honoraires,
     required this.payer,
     required this.ouvrir,
+    this.copieDu,
+    this.serveurEnPanne = false,
+    this.enAttenteDeValidation = const {},
   });
 
   final MesHonoraires honoraires;
+
+  /// Non nul : la page montre la dernière lecture gardée, de cet instant-là.
+  final DateTime? copieDu;
+  final bool serveurEnPanne;
+  final Set<String> enAttenteDeValidation;
   final Future<void> Function(PeriodeDHonoraires) payer;
   final void Function(String chemin, String titre) ouvrir;
 
@@ -169,6 +206,10 @@ class _Contenu extends StatelessWidget {
         Marque.espaceSousLaBarreDe(context),
       ),
       children: [
+        if (copieDu != null) ...[
+          BandeauHorsLigne(copieDu: copieDu!, serveurEnPanne: serveurEnPanne),
+          const SizedBox(height: Marque.espace3),
+        ],
         Chapeau(
           titre: h.du > 0
               ? '${montantFcfa(h.du)} à régler'
@@ -190,7 +231,10 @@ class _Contenu extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 12),
               child: _PeriodeDue(
                 periode: p,
-                enLigne: h.reglableEnLigne,
+                // ⚠️ Pas de paiement depuis une copie : la période est peut-être
+                // déjà réglée, et la demande partirait pour rien.
+                enLigne: h.reglableEnLigne && copieDu == null,
+                enAttenteDeValidation: enAttenteDeValidation.contains(p.cle),
                 payer: () => payer(p),
                 note: () =>
                     ouvrir('/echeances/${p.cle}/note', 'Note d\'honoraires'),
@@ -274,10 +318,14 @@ class _PeriodeDue extends StatelessWidget {
     required this.enLigne,
     required this.payer,
     required this.note,
+    this.enAttenteDeValidation = false,
   });
 
   final PeriodeDHonoraires periode;
   final bool enLigne;
+
+  /// La demande de débit est partie ; l'opérateur ne l'a pas encore confirmée.
+  final bool enAttenteDeValidation;
   final VoidCallback payer;
   final VoidCallback note;
 
@@ -333,7 +381,15 @@ class _PeriodeDue extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          if (enLigne)
+          if (enAttenteDeValidation) ...[
+            const EnAttenteDeValidation(),
+            if (enLigne)
+              TextButton(
+                key: Key('payer-${p.cle}'),
+                onPressed: payer,
+                child: const Text('Rien reçu ? Renvoyer la demande'),
+              ),
+          ] else if (enLigne)
             SizedBox(
               width: double.infinity,
               child: BoutonDAction(

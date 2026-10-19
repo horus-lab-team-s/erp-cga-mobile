@@ -44,9 +44,18 @@ class EcranApercuDuDepot extends StatefulWidget {
     super.key,
     required this.chemin,
     this.unFichier = false,
+    this.quittance = false,
   });
 
   final String chemin;
+
+  /// 20 octobre 2026 : l'aperçu d'une QUITTANCE, avant qu'elle parte prouver un
+  /// paiement. Sans formulaire : ce que la quittance acquitte, l'écran des
+  /// échéances le sait déjà, et le demander une seconde fois ferait douter.
+  ///
+  /// ⚠️ L'aperçu reste, lui : une quittance floue partait d'un seul appui, et le
+  /// cabinet ne pouvait rien en tirer. On la revoit avant de l'envoyer.
+  final bool quittance;
 
   /// La pièce vient des fichiers du téléphone (un scan), et non de l'appareil :
   /// on propose d'en choisir un autre, et non de « reprendre la photo ».
@@ -134,7 +143,11 @@ class _EtatDeLApercu extends State<EcranApercuDuDepot> {
         backgroundColor: Marque.indigo900,
         foregroundColor: Colors.white,
         title: Text(
-          widget.unFichier ? 'Vérifier le scan' : 'Vérifier la pièce',
+          widget.quittance
+              ? 'Vérifier la quittance'
+              : widget.unFichier
+              ? 'Vérifier le scan'
+              : 'Vérifier la pièce',
         ),
       ),
       body: ListView(
@@ -217,112 +230,36 @@ class _EtatDeLApercu extends State<EcranApercuDuDepot> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  'Ce que vous savez de cette pièce',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Tout est facultatif. Ce que vous direz ici, le comptable '
-                  'n\'aura pas à le relire.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: couleurs.onSurfaceVariant,
-                    height: 1.4,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final n in NatureDeLaPiece.values)
-                      ChoiceChip(
-                        key: Key('nature-${n.code}'),
-                        label: Text(n.libelle),
-                        selected: _nature == n,
-                        onSelected: (oui) =>
-                            setState(() => _nature = oui ? n : null),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  key: const Key('apercu-emetteur'),
-                  controller: _emetteur,
-                  textCapitalization: TextCapitalization.characters,
-                  textInputAction: TextInputAction.next,
-                  decoration: InputDecoration(
-                    labelText: _libelleEmetteur,
-                    prefixIcon: const Icon(Icons.storefront_outlined),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                // ⚠️ Le numéro et la date l'un sous l'autre : côte à côte, « FA-2026-0815 »
-                // ne tenait pas dans sa moitié d'écran et s'affichait tronqué.
-                TextField(
-                  key: const Key('apercu-reference'),
-                  controller: _reference,
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
-                    labelText: 'Numéro de la facture',
-                    prefixIcon: Icon(Icons.tag),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                InkWell(
-                  key: const Key('apercu-date'),
-                  onTap: _choisirLaDate,
-                  borderRadius: BorderRadius.circular(12),
-                  child: InputDecorator(
-                    decoration: const InputDecoration(
-                      labelText: 'Date du document',
-                      prefixIcon: Icon(Icons.event_outlined),
-                    ),
-                    child: Text(
-                      _date == null ? 'Touchez pour choisir' : jourLong(_date!),
-                      overflow: TextOverflow.ellipsis,
+                if (widget.quittance) ...[
+                  Text(
+                    'Votre quittance est-elle lisible ?',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  key: const Key('apercu-montant'),
-                  controller: _montant,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [
-                    FilteringTextInputFormatter.digitsOnly,
-                    const _ParTranches(),
-                  ],
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
-                    labelText: 'Montant TTC',
-                    suffixText: 'F CFA',
-                    prefixIcon: Icon(Icons.payments_outlined),
-                    helperText:
-                        'Le total en bas de la facture, taxes comprises.',
+                  const SizedBox(height: 4),
+                  Text(
+                    'Le montant, la date et la référence du paiement doivent se '
+                    'lire. Touchez l\'image pour l\'agrandir.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: couleurs.onSurfaceVariant,
+                      height: 1.4,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  key: const Key('apercu-note'),
-                  controller: _note,
-                  maxLines: 3,
-                  minLines: 2,
-                  maxLength: 300,
-                  decoration: const InputDecoration(
-                    labelText: 'Un mot pour le comptable',
-                    hintText: 'Payée en espèces, avoir sur la facture 412…',
-                    alignLabelWithHint: true,
-                  ),
-                ),
-                const SizedBox(height: 8),
+                  const SizedBox(height: 16),
+                ] else
+                  ..._formulaire(theme),
                 BoutonDAction(
                   key: const Key('apercu-envoyer'),
-                  libelle: 'Envoyer la pièce',
+                  libelle: widget.quittance
+                      ? 'Envoyer la quittance'
+                      : 'Envoyer la pièce',
                   icone: Icons.send_rounded,
-                  surAppui: _envoyer,
+                  surAppui: widget.quittance
+                      ? () => Navigator.of(
+                          context,
+                        ).pop(const EnvoyerLaPiece(ConnaissanceDeLaPiece()))
+                      : _envoyer,
                 ),
                 const SizedBox(height: 10),
                 BoutonDAction(
@@ -341,6 +278,112 @@ class _EtatDeLApercu extends State<EcranApercuDuDepot> {
         ],
       ),
     );
+  }
+
+  /// Ce que l'adhérent peut dire d'une pièce ordinaire. Tout est facultatif.
+  List<Widget> _formulaire(ThemeData theme) {
+    final couleurs = theme.colorScheme;
+    return [
+      Text(
+        'Ce que vous savez de cette pièce',
+        style: theme.textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      const SizedBox(height: 4),
+      Text(
+        'Tout est facultatif. Ce que vous direz ici, le comptable '
+        'n\'aura pas à le relire.',
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: couleurs.onSurfaceVariant,
+          height: 1.4,
+        ),
+      ),
+      const SizedBox(height: 16),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final n in NatureDeLaPiece.values)
+            ChoiceChip(
+              key: Key('nature-${n.code}'),
+              label: Text(n.libelle),
+              selected: _nature == n,
+              onSelected: (oui) => setState(() => _nature = oui ? n : null),
+            ),
+        ],
+      ),
+      const SizedBox(height: 16),
+      TextField(
+        key: const Key('apercu-emetteur'),
+        controller: _emetteur,
+        textCapitalization: TextCapitalization.characters,
+        textInputAction: TextInputAction.next,
+        decoration: InputDecoration(
+          labelText: _libelleEmetteur,
+          prefixIcon: const Icon(Icons.storefront_outlined),
+        ),
+      ),
+      const SizedBox(height: 12),
+      // ⚠️ Le numéro et la date l'un sous l'autre : côte à côte, « FA-2026-0815 »
+      // ne tenait pas dans sa moitié d'écran et s'affichait tronqué.
+      TextField(
+        key: const Key('apercu-reference'),
+        controller: _reference,
+        textInputAction: TextInputAction.next,
+        decoration: const InputDecoration(
+          labelText: 'Numéro de la facture',
+          prefixIcon: Icon(Icons.tag),
+        ),
+      ),
+      const SizedBox(height: 12),
+      InkWell(
+        key: const Key('apercu-date'),
+        onTap: _choisirLaDate,
+        borderRadius: BorderRadius.circular(12),
+        child: InputDecorator(
+          decoration: const InputDecoration(
+            labelText: 'Date du document',
+            prefixIcon: Icon(Icons.event_outlined),
+          ),
+          child: Text(
+            _date == null ? 'Touchez pour choisir' : jourLong(_date!),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ),
+      const SizedBox(height: 12),
+      TextField(
+        key: const Key('apercu-montant'),
+        controller: _montant,
+        keyboardType: TextInputType.number,
+        inputFormatters: [
+          FilteringTextInputFormatter.digitsOnly,
+          const _ParTranches(),
+        ],
+        textInputAction: TextInputAction.next,
+        decoration: const InputDecoration(
+          labelText: 'Montant TTC',
+          suffixText: 'F CFA',
+          prefixIcon: Icon(Icons.payments_outlined),
+          helperText: 'Le total en bas de la facture, taxes comprises.',
+        ),
+      ),
+      const SizedBox(height: 12),
+      TextField(
+        key: const Key('apercu-note'),
+        controller: _note,
+        maxLines: 3,
+        minLines: 2,
+        maxLength: 300,
+        decoration: const InputDecoration(
+          labelText: 'Un mot pour le comptable',
+          hintText: 'Payée en espèces, avoir sur la facture 412…',
+          alignLabelWithHint: true,
+        ),
+      ),
+      const SizedBox(height: 8),
+    ];
   }
 }
 

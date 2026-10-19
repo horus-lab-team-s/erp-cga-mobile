@@ -235,3 +235,61 @@ class _EtatDeLaFeuilleDePaiement extends State<FeuilleDePaiement> {
     );
   }
 }
+
+/// La mention d'une carte dont la demande de débit est partie (20 octobre 2026).
+///
+/// ⚠️ Elle remplace le bouton « Payer » : laissé en place, il invitait à payer une
+/// seconde fois une période que l'adhérent venait de valider sur son téléphone.
+class EnAttenteDeValidation extends StatelessWidget {
+  const EnAttenteDeValidation({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Semantics(
+      liveRegion: true,
+      child: Container(
+        key: const Key('paiement-en-attente'),
+        width: double.infinity,
+        padding: const EdgeInsets.all(Marque.espace3),
+        decoration: BoxDecoration(
+          color: theme.colorScheme.primaryContainer,
+          borderRadius: BorderRadius.circular(Marque.rayonBloc + 4),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              Icons.hourglass_top_rounded,
+              size: 20,
+              color: theme.colorScheme.onPrimaryContainer,
+            ),
+            const SizedBox(width: Marque.espace2 + 2),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Paiement en attente de validation',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: theme.colorScheme.onPrimaryContainer,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Composez votre code sur le message de l\'opérateur. La carte '
+                    'change dès que le paiement est confirmé.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onPrimaryContainer,
+                      height: 1.4,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

@@ -106,8 +106,10 @@ class PriseDeVue {
     String dossier,
     Capture capture, {
     ConnaissanceDeLaPiece? connaissance,
+    String? demande,
   }) async {
     final depot = Depot(
+      demande: demande,
       identifiant: capture.identifiant,
       dossier: dossier,
       cheminDuFichier: capture.chemin,

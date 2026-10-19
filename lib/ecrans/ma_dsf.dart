@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../composants/actions.dart';
 import '../composants/carte.dart';
+import '../composants/etat.dart';
 import '../composants/source_d_image.dart';
 import '../domaine/ma_dsf.dart';
 import '../domaine/prise_de_vue.dart';
@@ -27,14 +28,16 @@ class EcranMaDsf extends StatefulWidget {
   const EcranMaDsf({
     super.key,
     required this.espace,
-    required this.dossiers,
+    required this.dossier,
     required this.priseDeVue,
     required this.quandSessionExpire,
     required this.ouvrirDocument,
   });
 
   final ServiceDeLEspace espace;
-  final List<String> dossiers;
+
+  /// Le dossier choisi dans l'en-tête de l'accueil (20 octobre 2026).
+  final String dossier;
   final PriseDeVue priseDeVue;
   final VoidCallback quandSessionExpire;
   final void Function(String chemin, String titre) ouvrirDocument;
@@ -44,7 +47,7 @@ class EcranMaDsf extends StatefulWidget {
 }
 
 class _EtatDeMaDsf extends State<EcranMaDsf> {
-  late final String _dossier = widget.dossiers.first;
+  String get _dossier => widget.dossier;
   Lecture<MaDsf>? _lecture;
 
   /// La pièce en cours d'envoi : « exercice/numéro ».
@@ -66,7 +69,49 @@ class _EtatDeMaDsf extends State<EcranMaDsf> {
     setState(() => _lecture = lue);
   }
 
+  @override
+  void didUpdateWidget(EcranMaDsf ancien) {
+    super.didUpdateWidget(ancien);
+    if (ancien.dossier != widget.dossier) {
+      setState(() => _lecture = null);
+      _relire();
+    }
+  }
+
+  /// ⚠️ 20 octobre 2026 : « Remplacer » écrasait d'un appui la pièce que le cabinet
+  /// avait déjà reçue, à côté du bouton qu'on touche pour l'envoyer. On demande.
+  Future<bool> _confirmerLeRemplacement(MaPieceDsf piece) async {
+    final oui = await showDialog<bool>(
+      context: context,
+      builder: (contexte) => AlertDialog(
+        title: const Text('Remplacer cette pièce ?'),
+        content: Text(
+          'Le cabinet a déjà reçu « ${piece.libelle} »'
+          '${piece.nomDuFichier == null ? '' : ' (${piece.nomDuFichier})'}. '
+          'La nouvelle prendra sa place.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(contexte).pop(false),
+            child: const Text('Garder l\'actuelle'),
+          ),
+          FilledButton(
+            key: const Key('confirmer-remplacement'),
+            onPressed: () => Navigator.of(contexte).pop(true),
+            child: const Text('Remplacer'),
+          ),
+        ],
+      ),
+    );
+    return oui == true;
+  }
+
   Future<void> _envoyer(MaDsfDeLExercice exercice, MaPieceDsf piece) async {
+    if (piece.etat == EtatDeMaPiece.jointe &&
+        !await _confirmerLeRemplacement(piece)) {
+      return;
+    }
+    if (!mounted) return;
     final chemin = await obtenirUneImage(context, widget.priseDeVue);
     if (chemin == null || !mounted) return;
     setState(() => _envoi = '${exercice.exercice}/${piece.numero}');
@@ -121,16 +166,12 @@ class _EtatDeMaDsf extends State<EcranMaDsf> {
       body: RefreshIndicator(
         onRefresh: _relire,
         child: switch ((lecture, dsf)) {
-          (null, _) => const Center(child: CircularProgressIndicator()),
-          (_, null) => EtatVide(
-            titre: 'Pas de réseau',
-            detail:
+          (null, _) => const Squelette(chapeau: false, cartes: 2),
+          (final Lecture<MaDsf> l, null) => EtatDePanne(
+            serveurEnPanne: l.serveurEnPanne,
+            horsLigne:
                 'L\'état de votre DSF se lit sur le serveur. Il reparaîtra dès que la connexion revient.',
-            icone: Icons.wifi_off_outlined,
-            action: OutlinedButton(
-              onPressed: _relire,
-              child: const Text('Réessayer'),
-            ),
+            reessayer: _relire,
           ),
           (_, final MaDsf x) when x.exercices.isEmpty => const EtatVide(
             titre: 'Aucun exercice clos',
@@ -138,7 +179,7 @@ class _EtatDeMaDsf extends State<EcranMaDsf> {
                 'Votre première DSF apparaîtra ici après la clôture de l\'exercice.',
             icone: Icons.event_note_outlined,
           ),
-          (_, final MaDsf x) => ListView(
+          (final Lecture<MaDsf> l, final MaDsf x) => ListView(
             padding: EdgeInsets.fromLTRB(
               Marque.espace4,
               Marque.espace4,
@@ -146,6 +187,13 @@ class _EtatDeMaDsf extends State<EcranMaDsf> {
               Marque.espaceSousLaBarreDe(context),
             ),
             children: [
+              if (l.copieDu != null) ...[
+                BandeauHorsLigne(
+                  copieDu: l.copieDu!,
+                  serveurEnPanne: l.serveurEnPanne,
+                ),
+                const SizedBox(height: Marque.espace3),
+              ],
               Text(
                 'Après la clôture de l\'exercice, le cabinet établit votre déclaration statistique et fiscale et la '
                 'dépose sur le portail de la DGI. Il lui faut quelques pièces que vous seul détenez.',

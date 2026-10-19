@@ -86,7 +86,7 @@ void main() {
         theme: themeClair(),
         home: EcranDocuments(
           session: s,
-          dossiers: const ['M081234567890P'],
+          dossier: 'M081234567890P',
           quandSessionExpire: () {},
           ouvrirLHistorique: ouvrirLHistorique,
           ouvrirLeRecu: ouvrirLeRecu,

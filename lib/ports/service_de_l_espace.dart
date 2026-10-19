@@ -8,22 +8,38 @@ import 'service_des_fichiers.dart';
 ///
 /// ⚠️ « Pas de réseau » et « session expirée » ne se disent pas pareil à
 /// l'adhérent : l'un appelle « réessayer », l'autre « se reconnecter ».
+///
+/// ⚠️ 20 octobre 2026 : « pas de réseau » et « le cabinet ne répond pas » non plus.
+/// Le premier se règle chez l'adhérent (données mobiles, Wi-Fi) ; le second, non,
+/// et lui faire chercher son réseau quand le serveur est arrêté l'envoie nulle part.
 class Lecture<T> {
-  const Lecture.lue(T this.valeur)
+  /// [copieDu] : le réseau a manqué, et cette valeur est la dernière lecture gardée
+  /// sur l'appareil, de cet instant-là. L'écran l'affiche avec sa date.
+  const Lecture.lue(T this.valeur, {this.copieDu, this.serveurEnPanne = false})
     : sessionAExpire = false,
       serveurJoignable = true;
   const Lecture.sessionExpiree()
     : valeur = null,
+      copieDu = null,
       sessionAExpire = true,
-      serveurJoignable = true;
-  const Lecture.injoignable()
+      serveurJoignable = true,
+      serveurEnPanne = false;
+  const Lecture.injoignable({this.serveurEnPanne = false})
     : valeur = null,
+      copieDu = null,
       sessionAExpire = false,
       serveurJoignable = false;
 
   final T? valeur;
   final bool sessionAExpire;
   final bool serveurJoignable;
+
+  /// Le téléphone a du réseau, mais le serveur a refusé la connexion ou répondu
+  /// en erreur. Faux : c'est le réseau de l'appareil qui manque.
+  final bool serveurEnPanne;
+
+  /// Non nul : une copie gardée, lue à cet instant (voir `MemoireDesLectures`).
+  final DateTime? copieDu;
 }
 
 /// Le sort d'une pièce versée à la DSF.

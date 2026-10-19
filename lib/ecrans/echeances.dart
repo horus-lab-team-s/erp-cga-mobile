@@ -2,17 +2,21 @@ import 'package:flutter/material.dart';
 
 import '../composants/actions.dart';
 import '../composants/carte.dart';
+import '../composants/etat.dart';
 import '../composants/joindre.dart';
 import '../composants/paiement.dart';
 import '../composants/source_d_image.dart';
 import '../contenu/cabinet.dart';
 import '../domaine/fonds_confies.dart';
+import '../domaine/fraicheur.dart';
+import '../domaine/suivi_du_paiement.dart';
 import '../marque.dart';
 import '../domaine/echeance.dart';
 import '../domaine/prise_de_vue.dart';
 import '../domaine/preuve.dart';
 import '../ports/service_de_l_espace.dart';
 import '../ports/service_de_session.dart';
+import 'apercu_du_depot.dart';
 
 /// Ce que l'adhérent doit, et quand.
 ///
@@ -31,18 +35,26 @@ class EcranEcheances extends StatefulWidget {
   const EcranEcheances({
     super.key,
     required this.session,
-    required this.dossiers,
+    required this.dossier,
     required this.quandSessionExpire,
     required this.priseDeVue,
     this.espace,
+    this.apresLecture,
   });
+
+  /// Chaque lecture réussie, pour les rappels d'échéances posés sur le téléphone.
+  final void Function(Echeancier)? apresLecture;
 
   /// 18 octobre 2026 : les fonds confiés au cabinet, et leur règlement par mobile
   /// money. `null` : l'écran n'offre que la quittance, comme avant.
   final ServiceDeLEspace? espace;
 
   final ServiceDeSession session;
-  final List<String> dossiers;
+
+  /// ⚠️ 20 octobre 2026 : LE dossier choisi dans l'en-tête de l'accueil. L'écran
+  /// avait son propre sélecteur, et l'accueil le sien : deux choix qui pouvaient
+  /// se contredire d'un onglet à l'autre.
+  final String dossier;
   final VoidCallback quandSessionExpire;
 
   /// ⚠️ La prise de vue sert ici à photographier une QUITTANCE, jamais un
@@ -54,16 +66,25 @@ class EcranEcheances extends StatefulWidget {
   State<EcranEcheances> createState() => _EtatDesEcheances();
 }
 
-/// ⚠️ `WidgetsBindingObserver` : l'écran redemande au serveur à chaque retour au
+/// ⚠️ `WidgetsBindingObserver` : l'écran redemande au serveur au retour au
 /// premier plan. Même raison que l'historique, et plus forte : une échéance
 /// franchie pendant que l'application dormait change l'état de la carte, et un
 /// écran qui dit « à venir » sur une obligation passée en retard se trompe dans
 /// le sens qui coûte des majorations.
+///
+/// ⚠️ 20 octobre 2026 : SEULEMENT SI LA LECTURE A PLUS DE CINQ MINUTES (voir
+/// `Fraicheur`). Aucune échéance ne se franchit en cinq minutes qui ne l'était
+/// déjà ; tirer vers le bas relit toujours.
 class _EtatDesEcheances extends State<EcranEcheances>
     with WidgetsBindingObserver {
   Echeancier? _echeancier;
   bool _lectureEnCours = true;
-  late String _dossier = widget.dossiers.first;
+  String get _dossier => widget.dossier;
+  final _fraicheur = Fraicheur();
+
+  /// Les appels de fonds dont la demande de débit est partie, et que l'opérateur
+  /// n'a pas encore confirmés.
+  final _enAttenteDeValidation = <String>{};
 
   @override
   void initState() {
@@ -79,8 +100,20 @@ class _EtatDesEcheances extends State<EcranEcheances>
   }
 
   @override
+  void didUpdateWidget(EcranEcheances ancien) {
+    super.didUpdateWidget(ancien);
+    if (ancien.dossier != widget.dossier) {
+      setState(() {
+        _echeancier = null;
+        _enAttenteDeValidation.clear();
+      });
+      _relire();
+    }
+  }
+
+  @override
   void didChangeAppLifecycleState(AppLifecycleState etat) {
-    if (etat == AppLifecycleState.resumed) {
+    if (etat == AppLifecycleState.resumed && _fraicheur.perimee) {
       _relire();
     }
   }
@@ -99,12 +132,26 @@ class _EtatDesEcheances extends State<EcranEcheances>
           : espace.mesFondsConfies(_dossier),
     ).wait;
     if (!mounted) return;
+    final f = fonds.valeur ?? FondsConfies.aucun;
     setState(() {
       _echeancier = lu;
-      _fonds = fonds.valeur ?? FondsConfies.aucun;
+      _fonds = f;
       _lectureEnCours = false;
+      // Un appel dont les fonds sont constatés perd sa mention « en attente ».
+      _enAttenteDeValidation.removeWhere(
+        (id) => !f.appels.any(
+          (a) => a.identifiant == id && a.etat == EtatDeLAppel.aRegler,
+        ),
+      );
     });
-    if (lu.sessionAExpire) widget.quandSessionExpire();
+    if (lu.sessionAExpire) {
+      widget.quandSessionExpire();
+      return;
+    }
+    if (lu.serveurJoignable && lu.copieDu == null) {
+      _fraicheur.marquer();
+      widget.apresLecture?.call(lu);
+    }
   }
 
   /// L'obligation dont la preuve est en cours d'envoi, s'il y en a une.
@@ -133,7 +180,24 @@ class _EtatDesEcheances extends State<EcranEcheances>
             'Le cabinet paie l\'administration pour vous et garde la quittance : vous n\'avez rien à envoyer.',
       ),
     );
-    if (envoyee == true) await _relire();
+    if (envoyee != true || !mounted) return;
+    // 20 octobre 2026 : la carte dit « en attente de validation », et l'écran relit
+    // trois fois. Voir `suivreLePaiement`.
+    setState(() => _enAttenteDeValidation.add(appel.identifiant));
+    final regle = await suivreLePaiement(
+      continuer: () => mounted,
+      estRegle: () async {
+        await _relire();
+        return !_enAttenteDeValidation.contains(appel.identifiant);
+      },
+    );
+    if (regle && mounted) {
+      annoncer(
+        context,
+        'Fonds reçus pour ${e.titre} · ${e.periode} : le cabinet paie '
+        'l\'administration pour vous.',
+      );
+    }
   }
 
   /// Les façons de régler une échéance, dites une fois, clairement.
@@ -149,8 +213,27 @@ class _EtatDesEcheances extends State<EcranEcheances>
     ),
   );
 
+  /// La quittance, revue avant d'envoyer (20 octobre 2026). Rend son chemin, ou
+  /// `null` si l'adhérent renonce.
+  ///
+  /// ⚠️ L'aperçu du dépôt, sans son formulaire : une quittance floue partait d'un
+  /// appui, et le cabinet ne pouvait rien rattacher.
+  Future<String?> _quittanceRevue() async {
+    while (true) {
+      final chemin = await obtenirUneImage(context, widget.priseDeVue);
+      if (chemin == null || !mounted) return null;
+      final decision = await Navigator.of(context).push<DecisionDApercu>(
+        MaterialPageRoute(
+          builder: (_) => EcranApercuDuDepot(chemin: chemin, quittance: true),
+        ),
+      );
+      if (decision is EnvoyerLaPiece) return chemin;
+      if (decision is! ReprendreLaPhoto || !mounted) return null;
+    }
+  }
+
   Future<void> _jaiPaye(Echeance e) async {
-    final chemin = await obtenirUneImage(context, widget.priseDeVue);
+    final chemin = await _quittanceRevue();
     if (chemin == null || !mounted) return;
     setState(() => _envoiEnCours = e.codeObligation);
     final sort = await widget.session.envoyerLaPreuve(
@@ -210,54 +293,31 @@ class _EtatDesEcheances extends State<EcranEcheances>
   Widget build(BuildContext context) {
     final e = _echeancier;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Mes échéances'),
-        actions: [
-          if (widget.dossiers.length > 1)
-            PopupMenuButton<String>(
-              key: const Key('choix-dossier-echeances'),
-              initialValue: _dossier,
-              tooltip: 'Changer de dossier',
-              icon: const Icon(Icons.folder_outlined),
-              onSelected: (d) {
-                setState(() => _dossier = d);
-                _relire();
-              },
-              itemBuilder: (_) => [
-                for (final d in widget.dossiers)
-                  PopupMenuItem(value: d, child: Text(d)),
-              ],
-            ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Mes échéances')),
       body: RefreshIndicator(
         onRefresh: _relire,
         child: switch ((_lectureEnCours, e)) {
-          (true, null) => const Center(
+          (true, null) => const Squelette(
             key: Key('echeances-en-attente'),
-            child: CircularProgressIndicator(),
+            hauteurDeCarte: 128,
           ),
-          (_, null) => const _RienDuTout(
-            titre: 'Échéancier indisponible',
-            detail: 'Le serveur n\'a pas répondu.',
-            icone: Icons.cloud_off_outlined,
-          ),
-          (_, final Echeancier x) when x.sessionAExpire => const _RienDuTout(
+          (_, null) => EtatDePanne(serveurEnPanne: true, reessayer: _relire),
+          (_, final Echeancier x) when x.sessionAExpire => const EtatVide(
             titre: 'Session expirée',
             detail: 'Reconnectez-vous pour consulter vos échéances.',
             icone: Icons.lock_outline,
           ),
-          (_, final Echeancier x) when !x.serveurJoignable => const _RienDuTout(
+          (_, final Echeancier x) when !x.serveurJoignable => EtatDePanne(
             // ⚠️ SURTOUT PAS « vous êtes à jour ». Voir l'en-tête d'`Echeancier` :
             // dire cela à un adhérent en retard de dix-neuf mois parce que le
             // réseau manquait est le pire mensonge que cet écran puisse faire.
-            titre: 'Pas de réseau',
-            detail:
+            serveurEnPanne: x.serveurEnPanne,
+            horsLigne:
                 'Vos échéances se lisent sur le serveur. Cette liste reparaîtra '
                 'dès que la connexion revient.',
-            icone: Icons.wifi_off_outlined,
+            reessayer: _relire,
           ),
-          (_, final Echeancier x) when x.echeances.isEmpty => const _RienDuTout(
+          (_, final Echeancier x) when x.echeances.isEmpty => const EtatVide(
             titre: 'Aucune échéance',
             detail:
                 'Le cabinet n\'a encore inscrit aucune obligation à votre '
@@ -270,8 +330,10 @@ class _EtatDesEcheances extends State<EcranEcheances>
             jaiPaye: _jaiPaye,
             envoiEnCours: _envoiEnCours,
             fonds: _fonds,
-            regler: widget.espace == null ? null : _regler,
+            // ⚠️ Pas de débit depuis une copie : l'appel est peut-être réglé.
+            regler: widget.espace == null || x.copieDu != null ? null : _regler,
             autresVoies: _autresVoies,
+            enAttenteDeValidation: _enAttenteDeValidation,
           ),
         },
       ),
@@ -287,8 +349,10 @@ class _Liste extends StatelessWidget {
     this.fonds = FondsConfies.aucun,
     this.regler,
     this.autresVoies,
+    this.enAttenteDeValidation = const {},
   });
 
+  final Set<String> enAttenteDeValidation;
   final FondsConfies fonds;
   final Future<void> Function(Echeance, AppelDeFonds)? regler;
   final Future<void> Function(Echeance)? autresVoies;
@@ -308,6 +372,13 @@ class _Liste extends StatelessWidget {
       Marque.espaceSousLaBarreDe(context),
     ),
     children: [
+      if (echeancier.copieDu != null) ...[
+        BandeauHorsLigne(
+          copieDu: echeancier.copieDu!,
+          serveurEnPanne: echeancier.serveurEnPanne,
+        ),
+        const SizedBox(height: Marque.espace3),
+      ],
       _Verdict(echeancier: echeancier),
       const SizedBox(height: 22),
       for (final e in echeancier.echeances)
@@ -321,6 +392,9 @@ class _Liste extends StatelessWidget {
             appel: fonds.appelPour(e.codeObligation, e.periodeDebut),
             regler: regler,
             autresVoies: autresVoies,
+            enAttenteDeValidation: enAttenteDeValidation.contains(
+              fonds.appelPour(e.codeObligation, e.periodeDebut)?.identifiant,
+            ),
           ),
         ),
     ],
@@ -373,7 +447,11 @@ class _Carte extends StatefulWidget {
     this.appel,
     this.regler,
     this.autresVoies,
+    this.enAttenteDeValidation = false,
   });
+
+  /// La demande de débit de cet appel est partie, sans confirmation encore.
+  final bool enAttenteDeValidation;
 
   /// Le cabinet paie cette obligation pour l'adhérent (mandat de paiement).
   final bool mandatee;
@@ -529,6 +607,7 @@ class _EtatDeLaCarte extends State<_Carte> {
                 mandatee: widget.mandatee,
                 appel: widget.appel,
                 enCours: widget.enCours,
+                enAttenteDeValidation: widget.enAttenteDeValidation,
                 jaiPaye: () => widget.jaiPaye(e),
                 regler: widget.regler == null || widget.appel == null
                     ? null
@@ -542,8 +621,8 @@ class _EtatDeLaCarte extends State<_Carte> {
             // ⚠️ L'explication est REPLIÉE par défaut. Dépliée, cinq cartes
             // font un mur de texte que personne ne lit ; absente, l'adhérent
             // ignore ce que « CNPS » veut dire. Le serveur fournit ces phrases,
-            // et elles viennent du référentiel : ce n'est pas l'application qui
-            // explique le droit.
+            // et elles viennent du référentiel du cabinet : ce n'est pas
+            // l'application qui explique le droit.
             TextButton.icon(
               key: Key('expliquer-${e.codeObligation}'),
               onPressed: () => setState(() => _deplie = !_deplie),
@@ -588,49 +667,6 @@ class _EtatDeLaCarte extends State<_Carte> {
   }
 }
 
-class _RienDuTout extends StatelessWidget {
-  const _RienDuTout({
-    required this.titre,
-    required this.detail,
-    required this.icone,
-  });
-
-  final String titre;
-  final String detail;
-  final IconData icone;
-
-  @override
-  Widget build(BuildContext context) {
-    final couleurs = Theme.of(context).colorScheme;
-    // `ListView` et non `Center` : le geste de tirer pour rafraîchir ne
-    // fonctionne que sur une zone qui défile.
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(32, 90, 32, 32),
-      children: [
-        Icon(icone, size: 44, color: couleurs.onSurfaceVariant),
-        const SizedBox(height: 18),
-        Text(
-          titre,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: couleurs.onSurface,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          detail,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: couleurs.onSurfaceVariant,
-            height: 1.5,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 /// La voie de règlement d'une échéance, selon qu'elle est confiée au cabinet ou non.
 class _Voie extends StatelessWidget {
   const _Voie({
@@ -641,8 +677,10 @@ class _Voie extends StatelessWidget {
     required this.jaiPaye,
     required this.regler,
     required this.autresVoies,
+    this.enAttenteDeValidation = false,
   });
 
+  final bool enAttenteDeValidation;
   final Echeance echeance;
   final bool mandatee;
   final AppelDeFonds? appel;
@@ -710,7 +748,15 @@ class _Voie extends StatelessWidget {
               ],
             ),
           ),
-        if (a != null && regler != null) ...[
+        if (a != null && enAttenteDeValidation) ...[
+          const EnAttenteDeValidation(),
+          if (regler != null)
+            TextButton(
+              key: Key('regler-${e.codeObligation}'),
+              onPressed: regler,
+              child: const Text('Rien reçu ? Renvoyer la demande'),
+            ),
+        ] else if (a != null && regler != null) ...[
           BoutonDAction(
             key: Key('regler-${e.codeObligation}'),
             libelle: 'Régler par mobile money',

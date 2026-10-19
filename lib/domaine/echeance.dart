@@ -192,11 +192,22 @@ class Echeancier {
     this.echeances = const [],
     this.serveurJoignable = true,
     this.sessionAExpire = false,
+    this.serveurEnPanne = false,
+    this.copieDu,
   });
 
   final List<Echeance> echeances;
   final bool serveurJoignable;
   final bool sessionAExpire;
+
+  /// 20 octobre 2026 : le téléphone a du réseau, mais le serveur n'a pas répondu
+  /// comme il faut. Faux avec `serveurJoignable` faux : c'est le réseau qui manque.
+  final bool serveurEnPanne;
+
+  /// Non nul : le réseau a manqué, et ce qui s'affiche est la dernière lecture
+  /// gardée sur l'appareil, de cet instant-là. ⚠️ `serveurJoignable` reste vrai :
+  /// le contenu est lisible ; c'est cette date qui dit qu'il peut avoir vieilli.
+  final DateTime? copieDu;
 
   /// Ce qui demande un geste de l'adhérent, maintenant.
   int get enRetard => echeances.where((e) => e.etat.demandeUnGeste).length;

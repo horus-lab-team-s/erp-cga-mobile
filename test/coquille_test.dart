@@ -178,7 +178,8 @@ void main() {
       'Échéances',
       'Déposer',
       'Documents',
-      'Plus',
+      // 20 octobre 2026 : l'onglet dit ce qu'il ouvre, en un mot qui tient.
+      'Espace',
     ]) {
       expect(
         find.text(libelle),
@@ -261,6 +262,15 @@ void main() {
     await testeur.pumpAndSettle();
     final avant = session.demandesDEcheances.length;
 
+    // ⚠️ 20 octobre 2026 : pas dans les cinq minutes (voir `Fraicheur`) ; tirer
+    // vers le bas, et le retour d'un écran où l'on a payé, relisent toujours.
+    await testeur.tap(find.byKey(const Key('onglet-accueil')));
+    await testeur.pumpAndSettle();
+    expect(session.demandesDEcheances.length, avant);
+
+    await testeur.tap(find.byKey(const Key('onglet-echeances')));
+    await testeur.pumpAndSettle();
+    await testeur.pump(const Duration(minutes: 6));
     await testeur.tap(find.byKey(const Key('onglet-accueil')));
     await testeur.pumpAndSettle();
 
@@ -293,6 +303,8 @@ void main() {
       ),
       findsOneWidget,
     );
+    await testeur.ensureVisible(find.byKey(const Key('plus-entreprise')));
+    await testeur.pumpAndSettle();
     await testeur.tap(find.byKey(const Key('plus-entreprise')));
     await testeur.pumpAndSettle();
     expect(

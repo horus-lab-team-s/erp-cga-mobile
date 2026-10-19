@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'depot.dart';
 import '../ports/magasin.dart';
 
@@ -77,6 +79,30 @@ class FileDAttente {
 
   /// Ajoute un dépôt à la file.
   Future<void> ajouter(Depot depot) => _magasin.ranger(depot);
+
+  /// Retire un dépôt de la file, ET efface sa copie sur le téléphone (20 octobre
+  /// 2026).
+  ///
+  /// ⚠️ LE SEUL MOYEN DE SE DÉDIRE. Une photo prise de travers, la mauvaise facture,
+  /// un doublon : la file la gardait jusqu'à ce que le serveur la prenne ou la
+  /// refuse, et l'adhérent la voyait partir sans pouvoir l'arrêter. L'écran
+  /// demande confirmation ; ici, on retire.
+  ///
+  /// ⚠️ La copie part avec : laissée sur le disque, elle attendrait le prochain
+  /// ménage de `PriseDeVue`, et une photo qu'on vient de retirer doit disparaître
+  /// tout de suite. Une copie déjà absente n'est pas une erreur.
+  Future<void> retirer(String identifiant) async {
+    final depot = (await _magasin.tous())
+        .where((d) => d.identifiant == identifiant)
+        .firstOrNull;
+    await _magasin.oublier(identifiant);
+    if (depot == null) return;
+    try {
+      await File(depot.cheminDuFichier).delete();
+    } on Object {
+      // Déjà partie : rien à faire.
+    }
+  }
 
   /// Ce qui attend de partir, dans l'ordre de la prise de vue.
   Future<List<Depot>> enAttente() async {

@@ -84,7 +84,7 @@ void main() {
         home: EcranMaDsf(
           key: UniqueKey(),
           espace: espace,
-          dossiers: const ['M081234567890P'],
+          dossier: 'M081234567890P',
           priseDeVue: prise,
           quandSessionExpire: () {},
           ouvrirDocument: (chemin, _) => ouverts.add(chemin),

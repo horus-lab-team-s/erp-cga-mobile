@@ -28,7 +28,7 @@ void main() {
         home: EcranHonoraires(
           key: UniqueKey(),
           espace: espace,
-          dossiers: const ['M081234567890P'],
+          dossier: 'M081234567890P',
           quandSessionExpire: () {},
           ouvrirDocument: (chemin, titre) => ouverts.add(chemin),
         ),
@@ -59,8 +59,61 @@ void main() {
       final lecturesAvant = espace.lecturesDHonoraires;
       await testeur.tap(find.text('J\'ai compris'));
       await testeur.pumpAndSettle();
-      // L'écran relit le serveur : c'est l'opérateur qui règle, pas le clic.
-      expect(espace.lecturesDHonoraires, lecturesAvant + 1);
+      // ⚠️ 20 octobre 2026 : la carte le dit tout de suite, sans rien marquer
+      // réglé, et le bouton « Payer » s'efface derrière « Renvoyer la demande ».
+      expect(find.text('Paiement en attente de validation'), findsOneWidget);
+      expect(find.text('Rien reçu ? Renvoyer la demande'), findsOneWidget);
+      // L'écran relit le serveur : c'est l'opérateur qui règle, pas le clic. Trois
+      // fois, à dix secondes d'intervalle, puis il se tait.
+      for (var i = 1; i <= 3; i++) {
+        await testeur.pump(const Duration(seconds: 10));
+        await testeur.pumpAndSettle();
+        expect(espace.lecturesDHonoraires, lecturesAvant + i);
+      }
+      await testeur.pump(const Duration(seconds: 30));
+      expect(espace.lecturesDHonoraires, lecturesAvant + 3);
+      // Rien n'est constaté : la mention reste, la prochaine lecture tranchera.
+      expect(find.text('Paiement en attente de validation'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'Le paiement confirmé par l\'opérateur se dit, et la mention s\'efface',
+    (testeur) async {
+      final espace = EspaceFeint(honoraires: honorairesDEssai());
+      await poser(testeur, espace);
+
+      await testeur.tap(find.byKey(const Key('payer-2026-09-01')));
+      await testeur.pumpAndSettle();
+      await testeur.enterText(
+        find.byKey(const Key('numero-mobile-money')),
+        '677123456',
+      );
+      await testeur.tap(find.byKey(const Key('confirmer-le-paiement')));
+      await testeur.pumpAndSettle();
+      await testeur.tap(find.text('J\'ai compris'));
+      await testeur.pumpAndSettle();
+      expect(find.text('Paiement en attente de validation'), findsOneWidget);
+
+      // L'adhérent compose son code ; l'opérateur confirme avant la 2e lecture.
+      await testeur.pump(const Duration(seconds: 10));
+      await testeur.pumpAndSettle();
+      espace.honoraires = honorairesDEssai(septembreReglee: true);
+      await testeur.pump(const Duration(seconds: 10));
+      await testeur.pumpAndSettle();
+
+      expect(
+        find.text('Paiement reçu : la période « Septembre 2026 » est réglée.'),
+        findsOneWidget,
+      );
+      expect(find.text('Paiement en attente de validation'), findsNothing);
+      final lectures = espace.lecturesDHonoraires;
+      await testeur.pump(const Duration(seconds: 30));
+      expect(
+        espace.lecturesDHonoraires,
+        lectures,
+        reason: 'Le suivi s\'arrête.',
+      );
     },
   );
 

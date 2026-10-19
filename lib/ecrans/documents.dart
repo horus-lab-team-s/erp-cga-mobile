@@ -3,8 +3,11 @@ import 'package:flutter/material.dart';
 import '../marque.dart';
 import 'package:flutter/services.dart';
 
+import '../composants/actions.dart';
 import '../composants/carte.dart';
 import '../composants/champ_de_recherche.dart';
+import '../composants/etat.dart';
+import '../domaine/fraicheur.dart';
 import '../composants/porte_de_l_historique.dart';
 import '../domaine/recherche.dart';
 import '../domaine/document_recu.dart';
@@ -29,7 +32,7 @@ class EcranDocuments extends StatefulWidget {
   const EcranDocuments({
     super.key,
     required this.session,
-    required this.dossiers,
+    required this.dossier,
     required this.quandSessionExpire,
     this.ouvrirLHistorique,
     this.ouvrirLeRecu,
@@ -40,7 +43,9 @@ class EcranDocuments extends StatefulWidget {
   final void Function(String dossier, String numero)? ouvrirLeRecu;
 
   final ServiceDeSession session;
-  final List<String> dossiers;
+
+  /// Le dossier choisi dans l'en-tête de l'accueil (20 octobre 2026).
+  final String dossier;
   final VoidCallback quandSessionExpire;
 
   /// Ouvre l'historique des pièces REMISES par l'adhérent.
@@ -69,7 +74,11 @@ class _EtatDesDocuments extends State<EcranDocuments>
 
   Documents? _documents;
   bool _lectureEnCours = true;
-  late String _dossier = widget.dossiers.first;
+  String get _dossier => widget.dossier;
+
+  /// ⚠️ 20 octobre 2026 : au retour au premier plan, on ne relit que si la
+  /// dernière lecture a plus de cinq minutes. Voir `Fraicheur`.
+  final _fraicheur = Fraicheur();
 
   @override
   void initState() {
@@ -85,8 +94,17 @@ class _EtatDesDocuments extends State<EcranDocuments>
   }
 
   @override
+  void didUpdateWidget(EcranDocuments ancien) {
+    super.didUpdateWidget(ancien);
+    if (ancien.dossier != widget.dossier) {
+      setState(() => _documents = null);
+      _relire();
+    }
+  }
+
+  @override
   void didChangeAppLifecycleState(AppLifecycleState etat) {
-    if (etat == AppLifecycleState.resumed) _relire();
+    if (etat == AppLifecycleState.resumed && _fraicheur.perimee) _relire();
   }
 
   Future<void> _relire() async {
@@ -98,60 +116,39 @@ class _EtatDesDocuments extends State<EcranDocuments>
       _lectureEnCours = false;
     });
     if (lu.sessionAExpire) widget.quandSessionExpire();
+    if (lu.serveurJoignable && lu.copieDu == null) _fraicheur.marquer();
   }
 
   @override
   Widget build(BuildContext context) {
     final d = _documents;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Mes documents'),
-        actions: [
-          if (widget.dossiers.length > 1)
-            PopupMenuButton<String>(
-              key: const Key('choix-dossier-documents'),
-              initialValue: _dossier,
-              tooltip: 'Changer de dossier',
-              icon: const Icon(Icons.folder_outlined),
-              onSelected: (x) {
-                setState(() => _dossier = x);
-                _relire();
-              },
-              itemBuilder: (_) => [
-                for (final x in widget.dossiers)
-                  PopupMenuItem(value: x, child: Text(x)),
-              ],
-            ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Mes documents')),
       body: RefreshIndicator(
         onRefresh: _relire,
         child: switch ((_lectureEnCours, d)) {
-          (true, null) => const Center(
+          (true, null) => const Squelette(
             key: Key('documents-en-attente'),
-            child: CircularProgressIndicator(),
+            chapeau: false,
+            cartes: 4,
           ),
-          (_, null) => const _RienDuTout(
-            titre: 'Documents indisponibles',
-            detail: 'Le serveur n\'a pas répondu.',
-            icone: Icons.cloud_off_outlined,
-          ),
-          (_, final Documents x) when x.sessionAExpire => const _RienDuTout(
+          (_, null) => EtatDePanne(serveurEnPanne: true, reessayer: _relire),
+          (_, final Documents x) when x.sessionAExpire => const EtatVide(
             titre: 'Session expirée',
             detail: 'Reconnectez-vous pour consulter vos accusés de dépôt.',
             icone: Icons.lock_outline,
           ),
-          (_, final Documents x) when !x.serveurJoignable => const _RienDuTout(
+          (_, final Documents x) when !x.serveurJoignable => EtatDePanne(
             // ⚠️ Jamais « aucun document » : dire à un adhérent que le cabinet
             // n'a rien déposé pour lui, parce que le réseau manquait, est
             // exactement le message qui fait appeler en urgence.
-            titre: 'Pas de réseau',
-            detail:
+            serveurEnPanne: x.serveurEnPanne,
+            horsLigne:
                 'Vos accusés de dépôt se lisent sur le serveur. Ils '
                 'reparaîtront dès que la connexion revient.',
-            icone: Icons.wifi_off_outlined,
+            reessayer: _relire,
           ),
-          (_, final Documents x) when x.documents.isEmpty => const _RienDuTout(
+          (_, final Documents x) when x.documents.isEmpty => const EtatVide(
             titre: 'Aucun accusé de dépôt',
             detail:
                 'Le cabinet n\'a encore consigné aucun dépôt à votre nom. Les '
@@ -160,6 +157,8 @@ class _EtatDesDocuments extends State<EcranDocuments>
           ),
           (_, final Documents x) => _Liste(
             documents: x.documents,
+            copieDu: x.copieDu,
+            serveurEnPanne: x.serveurEnPanne,
             ouvrirLHistorique: widget.ouvrirLHistorique,
             ouvrirLeRecu: widget.ouvrirLeRecu == null
                 ? null
@@ -180,8 +179,13 @@ class _Liste extends StatelessWidget {
     required this.surRecherche,
     this.ouvrirLHistorique,
     this.ouvrirLeRecu,
+    this.copieDu,
+    this.serveurEnPanne = false,
   });
 
+  /// Non nul : la liste est la dernière lecture gardée, de cet instant-là.
+  final DateTime? copieDu;
+  final bool serveurEnPanne;
   final void Function(String numero)? ouvrirLeRecu;
   final List<DocumentRecu> documents;
   final VoidCallback? ouvrirLHistorique;
@@ -224,6 +228,10 @@ class _Liste extends StatelessWidget {
         Marque.espaceSousLaBarreDe(context),
       ),
       children: [
+        if (copieDu != null) ...[
+          BandeauHorsLigne(copieDu: copieDu!, serveurEnPanne: serveurEnPanne),
+          const SizedBox(height: Marque.espace3),
+        ],
         Chapeau(
           titre: recherche.isEmpty
               ? '${documents.length} accusé${documents.length > 1 ? "s" : ""} '
@@ -557,45 +565,4 @@ String _montant(double v) {
     tranches.insert(0, entier.substring(fin - 3 < 0 ? 0 : fin - 3, fin));
   }
   return '${tranches.join(' ')} F';
-}
-
-class _RienDuTout extends StatelessWidget {
-  const _RienDuTout({
-    required this.titre,
-    required this.detail,
-    required this.icone,
-  });
-
-  final String titre;
-  final String detail;
-  final IconData icone;
-
-  @override
-  Widget build(BuildContext context) {
-    final couleurs = Theme.of(context).colorScheme;
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(32, 90, 32, 32),
-      children: [
-        Icon(icone, size: 44, color: couleurs.onSurfaceVariant),
-        const SizedBox(height: 18),
-        Text(
-          titre,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: couleurs.onSurface,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          detail,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: couleurs.onSurfaceVariant,
-            height: 1.5,
-          ),
-        ),
-      ],
-    );
-  }
 }

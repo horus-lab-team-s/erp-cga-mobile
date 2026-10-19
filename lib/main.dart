@@ -3,16 +3,20 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'adaptateurs/appareil_photo_systeme.dart';
 import 'adaptateurs/coffre_systeme.dart';
 import 'adaptateurs/magasin_fichier.dart';
 import 'adaptateurs/memoire_des_dossiers_fichier.dart';
+import 'adaptateurs/memoire_des_lectures_fichier.dart';
+import 'adaptateurs/rappels_systeme.dart';
 import 'api/client_api.dart';
 import 'api/remise.dart';
 import 'domaine/file_d_attente.dart';
 import 'domaine/prise_de_vue.dart';
+import 'domaine/rappels.dart';
 import 'ports/memoire_des_dossiers.dart';
 import 'marque.dart';
 import 'ecrans/coquille.dart';
@@ -69,13 +73,28 @@ class _EtatDeLApplication extends State<ApplicationCga> {
   FileDAttente? _file;
   MemoireDesDossiers? _memoire;
   PriseDeVue? _priseDeVue;
+  Rappels? _rappels;
   bool _connecte = false;
+
+  /// « 1.0.0 (1) », pour « Mon compte ».
+  String? _version;
 
   @override
   void initState() {
     super.initState();
     _ouvrirLaFile();
     _reprendreLaSession();
+    _lireLaVersion();
+  }
+
+  Future<void> _lireLaVersion() async {
+    try {
+      final paquet = await PackageInfo.fromPlatform();
+      if (!mounted) return;
+      setState(() => _version = '${paquet.version} (${paquet.buildNumber})');
+    } on Object {
+      // Sans version, la ligne ne paraît pas : rien de grave.
+    }
   }
 
   /// ⚠️ 19 octobre 2026 : un adhérent déjà connecté retombait sur la vitrine à chaque
@@ -99,8 +118,13 @@ class _EtatDeLApplication extends State<ApplicationCga> {
     final dossier = await getApplicationDocumentsDirectory();
     if (!mounted) return;
     final file = FileDAttente(MagasinDeFichier(dossier));
+    // 20 octobre 2026 : les dernières lectures, pour l'affichage hors ligne, à côté
+    // de la file et pour la même raison : un cache se vide sans prévenir.
+    final lectures = MemoireDesLecturesFichier(dossier);
+    _client.memoireDesLectures = lectures;
     setState(() {
       _file = file;
+      _rappels = Rappels(planificateur: RappelsDuSysteme(), memoire: lectures);
       _memoire = MemoireDesDossiersFichier(dossier);
       _priseDeVue = PriseDeVue(
         appareil: AppareilPhotoDuSysteme(),
@@ -163,14 +187,19 @@ class _EtatDeLApplication extends State<ApplicationCga> {
           priseDeVue: _priseDeVue!,
           remettre: Remise(_client).remettre,
           // Une session expirée en route sort aussi du coffre.
+          // ⚠️ 20 octobre 2026 : et les rappels d'échéances ne sonnent plus.
           quandDeconnecte: () {
             _client.oublierLaSession();
+            _rappels?.oublier();
             setState(() => _connecte = false);
           },
           tableau: _client,
           fichiers: _client,
           espace: _client,
           memoire: _memoire,
+          rappels: _rappels,
+          version: _version,
+          demanderUnLien: _client.demanderUnLienDeReinitialisation,
         ),
         // ⚠️ L'APPLICATION NE S'OUVRE PLUS SUR UN MUR DE CONNEXION.
         //

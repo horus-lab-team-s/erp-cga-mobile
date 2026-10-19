@@ -32,4 +32,14 @@ class NumeroMemorise {
       // Rien : la prochaine fois, il se retapera.
     }
   }
+
+  /// 20 octobre 2026 : « Oublier ce numéro », depuis « Mon compte ».
+  static Future<void> oublier() async {
+    try {
+      final fichier = await _fichier();
+      if (await fichier.exists()) await fichier.delete();
+    } on Object {
+      // Rien : il sera proposé une fois de plus, c'est tout.
+    }
+  }
 }

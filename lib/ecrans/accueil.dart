@@ -142,11 +142,18 @@ class EtatDeLAccueil extends State<EcranAccueil> with WidgetsBindingObserver {
 
   /// Ouvre l'appareil photo (ou la galerie), range la pièce, et rafraîchit la
   /// liste.
+  ///
+  /// [demande] : la pièce répond à une demande du cabinet, dont la file garde le
+  /// numéro (20 octobre 2026). [remplace] : « Reprendre » sur une vignette ; la
+  /// nouvelle prise prend la place de l'ancienne, qui ne sort de la file qu'une
+  /// fois la nouvelle enregistrée.
   Future<void> photographier({
     bool depuisLaGalerie = false,
     bool depuisUnFichier = false,
+    String? demande,
+    Depot? remplace,
   }) async {
-    final dossier = await _quelDossier();
+    final dossier = remplace?.dossier ?? await _quelDossier();
     if (dossier == null || !mounted) return;
     // ⚠️ 19 octobre 2026 : l'aperçu AVANT l'envoi. La photo partait sitôt prise ;
     // une facture coupée ou floue revenait trois jours plus tard. On la revoit, on
@@ -189,7 +196,9 @@ class EtatDeLAccueil extends State<EcranAccueil> with WidgetsBindingObserver {
           dossier,
           capture,
           connaissance: decision.connaissance,
+          demande: demande ?? remplace?.demande,
         );
+        if (remplace != null) await widget.file.retirer(remplace.identifiant);
         break;
       }
       await widget.priseDeVue.abandonner(capture);
@@ -204,6 +213,48 @@ class EtatDeLAccueil extends State<EcranAccueil> with WidgetsBindingObserver {
     // ⚠️ « Elle partira toute seule » : c'est ici que cela devient vrai.
     await _envoyerDiscretement();
   }
+
+  /// « Retirer » sur une vignette : la pièce ne partira pas, et sa photo s'efface.
+  ///
+  /// ⚠️ 20 octobre 2026 : AVEC CONFIRMATION. Le geste détruit la seule copie de la
+  /// pièce ; il est posé à côté de « Reprendre », qu'on touche bien plus souvent.
+  Future<void> _retirer(Depot depot) async {
+    final oui = await showDialog<bool>(
+      context: context,
+      builder: (contexte) => AlertDialog(
+        title: const Text('Retirer cette pièce ?'),
+        content: Text(
+          depot.etat == EtatDuDepot.refuse
+              ? 'Elle disparaîtra de ce téléphone. Le cabinet ne l\'a pas prise : '
+                    'rien ne change de son côté.'
+              : 'Elle ne partira pas au cabinet, et sa photo sera effacée de ce '
+                    'téléphone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(contexte).pop(false),
+            child: const Text('Garder'),
+          ),
+          FilledButton(
+            key: const Key('confirmer-retrait'),
+            onPressed: () => Navigator.of(contexte).pop(true),
+            child: const Text('Retirer'),
+          ),
+        ],
+      ),
+    );
+    if (oui != true || !mounted) return;
+    await widget.file.retirer(depot.identifiant);
+    await _relire();
+    if (!mounted) return;
+    annoncer(context, 'Pièce retirée.');
+  }
+
+  /// « Reprendre » : une nouvelle photo (ou un autre scan) à la place de celle-ci.
+  Future<void> _reprendre(Depot depot) => photographier(
+    depuisUnFichier: estUnDocumentPdf(depot.cheminDuFichier),
+    remplace: depot,
+  );
 
   /// Tente de vider la file SANS RIEN DIRE.
   ///
@@ -406,7 +457,12 @@ class EtatDeLAccueil extends State<EcranAccueil> with WidgetsBindingObserver {
               for (final depot in _enAttente)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: _Vignette(depot: depot),
+                  child: _Vignette(
+                    depot: depot,
+                    // ⚠️ Pas pendant un envoi : la pièce est peut-être en route.
+                    retirer: _envoiEnCours ? null : () => _retirer(depot),
+                    reprendre: _envoiEnCours ? null : () => _reprendre(depot),
+                  ),
                 ),
             ],
             if (_refuses.isNotEmpty) ...[
@@ -420,7 +476,12 @@ class EtatDeLAccueil extends State<EcranAccueil> with WidgetsBindingObserver {
               for (final depot in _refuses)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: _Vignette(depot: depot, alerte: true),
+                  child: _Vignette(
+                    depot: depot,
+                    alerte: true,
+                    retirer: () => _retirer(depot),
+                    reprendre: () => _reprendre(depot),
+                  ),
                 ),
             ],
           ],
@@ -624,10 +685,27 @@ class _TitreDeSection extends StatelessWidget {
 /// vignette.
 /// ─────────────────────────────────────────────────────────────────────────────
 class _Vignette extends StatelessWidget {
-  const _Vignette({required this.depot, this.alerte = false});
+  const _Vignette({
+    required this.depot,
+    this.alerte = false,
+    this.retirer,
+    this.reprendre,
+  });
 
   final Depot depot;
   final bool alerte;
+
+  /// 20 octobre 2026 : se dédire d'une pièce, ou la reprendre. `null` : le geste
+  /// est momentanément indisponible (un envoi est en cours).
+  final VoidCallback? retirer;
+  final VoidCallback? reprendre;
+
+  /// Des boutons de ligne, serrés : la vignette ne doit pas doubler de hauteur.
+  static final _compact = TextButton.styleFrom(
+    padding: const EdgeInsets.symmetric(horizontal: 6),
+    minimumSize: const Size(48, 40),
+    visualDensity: VisualDensity.compact,
+  );
 
   /// Beaucoup d'essais manqués : on le dit, au lieu d'un « en attente » muet.
   bool get _peine => depot.tentatives >= FileDAttente.tentativesMaximales;
@@ -698,6 +776,8 @@ class _Vignette extends StatelessWidget {
                       : _peine
                       ? "N'arrive pas à partir. Elle réessaie seule ; vous pouvez aussi "
                             'appuyer sur l\'envoi, en haut.'
+                      : depot.demande != null
+                      ? 'Pour la demande ${depot.demande} · ${depot.dossier}'
                       : 'Dossier ${depot.dossier}',
                   style: TextStyle(
                     fontSize: 12.5,
@@ -707,6 +787,30 @@ class _Vignette extends StatelessWidget {
                         : couleurs.onSurfaceVariant,
                   ),
                 ),
+                if (retirer != null || reprendre != null)
+                  Wrap(
+                    spacing: Marque.espace1,
+                    children: [
+                      TextButton.icon(
+                        key: Key('reprendre-${depot.identifiant}'),
+                        onPressed: reprendre,
+                        style: _compact,
+                        icon: const Icon(Icons.replay, size: 17),
+                        label: const Text('Reprendre'),
+                      ),
+                      TextButton.icon(
+                        key: Key('retirer-${depot.identifiant}'),
+                        onPressed: retirer,
+                        style: _compact.copyWith(
+                          foregroundColor: WidgetStatePropertyAll(
+                            couleurs.error,
+                          ),
+                        ),
+                        icon: const Icon(Icons.delete_outline, size: 17),
+                        label: const Text('Retirer'),
+                      ),
+                    ],
+                  ),
               ],
             ),
           ),

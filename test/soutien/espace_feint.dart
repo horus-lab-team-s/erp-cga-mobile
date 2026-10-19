@@ -21,6 +21,17 @@ class EspaceFeint implements ServiceDeLEspace {
   MesHonoraires? honoraires;
   MaDsf? dsf;
   MaPaie? paie;
+
+  /// 20 octobre 2026 : non nul, chaque lecture rend une COPIE gardée de cet
+  /// instant, comme `ClientApi` quand le réseau manque.
+  DateTime? copieDu;
+
+  /// Vrai : une lecture qui échoue dit « le cabinet ne répond pas ».
+  bool serveurEnPanne = false;
+
+  Lecture<T> _lecture<T>(T? valeur) => valeur == null
+      ? Lecture.injoignable(serveurEnPanne: serveurEnPanne)
+      : Lecture.lue(valeur, copieDu: copieDu);
   DemandeDeDebit debit;
   SortDuVersement versement;
 
@@ -32,8 +43,7 @@ class EspaceFeint implements ServiceDeLEspace {
   @override
   Future<Lecture<MesHonoraires>> mesHonoraires(String dossier) async {
     lecturesDHonoraires++;
-    final h = honoraires;
-    return h == null ? const Lecture.injoignable() : Lecture.lue(h);
+    return _lecture(honoraires);
   }
 
   @override
@@ -48,8 +58,7 @@ class EspaceFeint implements ServiceDeLEspace {
 
   @override
   Future<Lecture<MaDsf>> maDsf(String dossier) async {
-    final d = dsf;
-    return d == null ? const Lecture.injoignable() : Lecture.lue(d);
+    return _lecture(dsf);
   }
 
   @override
@@ -69,8 +78,7 @@ class EspaceFeint implements ServiceDeLEspace {
     required int annee,
     required int mois,
   }) async {
-    final p = paie;
-    return p == null ? const Lecture.injoignable() : Lecture.lue(p);
+    return _lecture(paie);
   }
 
   FondsConfies? fonds;
@@ -100,34 +108,45 @@ class EspaceFeint implements ServiceDeLEspace {
 }
 
 /// Deux périodes : août réglée, septembre en retard.
-MesHonoraires honorairesDEssai({bool factureDisponible = false}) =>
-    MesHonoraires.depuis({
-      'contrat': {'montant': '45000', 'periodicite': 'MENSUELLE'},
-      'echeances': [
-        {
-          'debut': '2026-08-01',
-          'fin': '2026-08-31',
-          'exigible_le': '2026-08-13',
-          'montant': '45000',
-          'etat': 'REGLEE',
-          'reglement': {
-            'identifiant': 'RH-1',
-            'constate_le': '2026-08-13T10:00:00',
-            'canal': 'GUICHET',
-            'reference_externe': 'Reçu de caisse 2026-0105',
-          },
+///
+/// [septembreReglee] : l'opérateur a confirmé le paiement de septembre.
+MesHonoraires honorairesDEssai({
+  bool factureDisponible = false,
+  bool septembreReglee = false,
+}) => MesHonoraires.depuis({
+  'contrat': {'montant': '45000', 'periodicite': 'MENSUELLE'},
+  'echeances': [
+    {
+      'debut': '2026-08-01',
+      'fin': '2026-08-31',
+      'exigible_le': '2026-08-13',
+      'montant': '45000',
+      'etat': 'REGLEE',
+      'reglement': {
+        'identifiant': 'RH-1',
+        'constate_le': '2026-08-13T10:00:00',
+        'canal': 'GUICHET',
+        'reference_externe': 'Reçu de caisse 2026-0105',
+      },
+    },
+    {
+      'debut': '2026-09-01',
+      'fin': '2026-09-30',
+      'exigible_le': '2026-09-13',
+      'montant': '45000',
+      'etat': septembreReglee ? 'REGLEE' : 'EN_RETARD',
+      if (septembreReglee)
+        'reglement': {
+          'identifiant': 'RH-2',
+          'constate_le': '2026-10-20T09:00:00',
+          'canal': 'MOBILE_MONEY',
+          'reference_externe': 'MM-1',
         },
-        {
-          'debut': '2026-09-01',
-          'fin': '2026-09-30',
-          'exigible_le': '2026-09-13',
-          'montant': '45000',
-          'etat': 'EN_RETARD',
-        },
-      ],
-      'du': '45000',
-      'en_retard': 1,
-      'reglable_en_ligne': true,
-      'situation': {'etat': 'EN_RETARD'},
-      'facture_disponible': factureDisponible,
-    });
+    },
+  ],
+  'du': septembreReglee ? '0' : '45000',
+  'en_retard': septembreReglee ? 0 : 1,
+  'reglable_en_ligne': true,
+  'situation': {'etat': 'EN_RETARD'},
+  'facture_disponible': factureDisponible,
+});

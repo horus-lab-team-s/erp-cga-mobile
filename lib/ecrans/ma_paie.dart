@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../composants/actions.dart';
 import '../composants/carte.dart';
+import '../composants/etat.dart';
 import '../domaine/ma_paie.dart';
 import '../marque.dart';
 import '../ports/service_de_l_espace.dart';
@@ -20,14 +21,27 @@ class EcranMaPaie extends StatefulWidget {
   const EcranMaPaie({
     super.key,
     required this.espace,
-    required this.dossiers,
+    required this.dossier,
     required this.quandSessionExpire,
     this.aujourdHui,
+    this.ouvrirDocument,
+    this.reglerLaCnps,
   });
 
   final ServiceDeLEspace espace;
-  final List<String> dossiers;
+
+  /// Le dossier choisi dans l'en-tête de l'accueil (20 octobre 2026).
+  final String dossier;
   final VoidCallback quandSessionExpire;
+
+  /// 20 octobre 2026 : le bulletin d'un salarié, en PDF, dans la visionneuse. Le
+  /// serveur le rend (`…/bulletins/{a}/{m}/{matricule}/pdf`), du même calcul que
+  /// l'écran : c'est lui qu'on remet au salarié. `null` : la ligne reste un relevé.
+  final void Function(String chemin, String titre)? ouvrirDocument;
+
+  /// 20 octobre 2026 : « Régler la CNPS » mène aux échéances, où la CNPS se règle
+  /// (mobile money sous mandat, ou quittance). `null` : pas de bouton.
+  final VoidCallback? reglerLaCnps;
 
   /// Pour les essais : le jour qui fixe le mois clos.
   final DateTime? aujourdHui;
@@ -37,7 +51,7 @@ class EcranMaPaie extends StatefulWidget {
 }
 
 class _EtatDeMaPaie extends State<EcranMaPaie> {
-  late final String _dossier = widget.dossiers.first;
+  String get _dossier => widget.dossier;
   late final (int, int) _dernier = MaPaie.moisParDefaut(
     widget.aujourdHui ?? DateTime.now(),
   );
@@ -63,6 +77,12 @@ class _EtatDeMaPaie extends State<EcranMaPaie> {
       return;
     }
     setState(() => _lecture = lue);
+  }
+
+  @override
+  void didUpdateWidget(EcranMaPaie ancien) {
+    super.didUpdateWidget(ancien);
+    if (ancien.dossier != widget.dossier) _relire();
   }
 
   void _decaler(int pas) {
@@ -115,24 +135,45 @@ class _EtatDeMaPaie extends State<EcranMaPaie> {
             ),
             const SizedBox(height: 8),
             switch ((lecture, paie)) {
-              (null, _) => const Padding(
-                padding: EdgeInsets.only(top: 80),
-                child: Center(child: CircularProgressIndicator()),
+              (null, _) => const Squelette(
+                chapeau: true,
+                cartes: 2,
+                defile: false,
+                marge: EdgeInsets.zero,
               ),
-              (_, null) => SizedBox(
-                height: 360,
-                child: EtatVide(
-                  titre: 'Paie indisponible',
-                  detail:
+              (final Lecture<MaPaie> l, null) => SizedBox(
+                height: 400,
+                child: EtatDePanne(
+                  serveurEnPanne: l.serveurEnPanne,
+                  horsLigne:
                       'Votre paie se lit sur le serveur. Elle reparaîtra dès que la connexion revient.',
-                  icone: Icons.wifi_off_outlined,
-                  action: OutlinedButton(
-                    onPressed: _relire,
-                    child: const Text('Réessayer'),
-                  ),
+                  reessayer: _relire,
                 ),
               ),
-              (_, final MaPaie p) => _Mois(paie: p),
+              (final Lecture<MaPaie> l, final MaPaie p) => Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (l.copieDu != null) ...[
+                    BandeauHorsLigne(
+                      copieDu: l.copieDu!,
+                      serveurEnPanne: l.serveurEnPanne,
+                    ),
+                    const SizedBox(height: Marque.espace3),
+                  ],
+                  _Mois(
+                    paie: p,
+                    reglerLaCnps: widget.reglerLaCnps,
+                    ouvrirLeBulletin: widget.ouvrirDocument == null
+                        ? null
+                        : (b) => widget.ouvrirDocument!(
+                            '/social/dossiers/${Uri.encodeComponent(_dossier)}'
+                                '/bulletins/${p.annee}/${p.mois}'
+                                '/${Uri.encodeComponent(b.matricule)}/pdf',
+                            'Bulletin · ${p.nomDe(b.matricule)}',
+                          ),
+                  ),
+                ],
+              ),
             },
           ],
         ),
@@ -142,9 +183,11 @@ class _EtatDeMaPaie extends State<EcranMaPaie> {
 }
 
 class _Mois extends StatelessWidget {
-  const _Mois({required this.paie});
+  const _Mois({required this.paie, this.reglerLaCnps, this.ouvrirLeBulletin});
 
   final MaPaie paie;
+  final VoidCallback? reglerLaCnps;
+  final void Function(BulletinDuMois)? ouvrirLeBulletin;
 
   @override
   Widget build(BuildContext context) {
@@ -175,6 +218,16 @@ class _Mois extends StatelessWidget {
               ? Icons.warning_amber_outlined
               : Icons.payments_outlined,
           grave: p.enRetard,
+          // 20 octobre 2026 : le montant se lisait ici, et se réglait trois écrans
+          // plus loin, sans rien pour y mener.
+          dessous: reglerLaCnps == null || p.cotisationsCnps <= 0
+              ? null
+              : BoutonDAction(
+                  key: const Key('regler-la-cnps'),
+                  libelle: 'Régler la CNPS',
+                  icone: Icons.event_outlined,
+                  surAppui: reglerLaCnps,
+                ),
         ),
         const SizedBox(height: 14),
         // Les trois chiffres de même hauteur, quel que soit le libellé qui passe à la ligne.
@@ -192,7 +245,9 @@ class _Mois extends StatelessWidget {
               Expanded(
                 child: _Chiffre(
                   valeur: montantFcfa(p.masseBrute),
-                  libelle: 'masse brute',
+                  // 20 octobre 2026 : « masse brute » est un mot de paie, pas de
+                  // commerçant.
+                  libelle: 'total des salaires bruts',
                 ),
               ),
               const SizedBox(width: 10),
@@ -215,6 +270,10 @@ class _Mois extends StatelessWidget {
               for (final (i, b) in p.bulletins.indexed) ...[
                 if (i > 0) const Divider(height: 1, indent: 16, endIndent: 16),
                 ListTile(
+                  key: Key('bulletin-${b.matricule}'),
+                  onTap: ouvrirLeBulletin == null
+                      ? null
+                      : () => ouvrirLeBulletin!(b),
                   leading: CircleAvatar(
                     backgroundColor: theme.colorScheme.primaryContainer,
                     child: Text(
@@ -253,7 +312,10 @@ class _Mois extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         Text(
-          'Les montants sont calculés par le cabinet, selon le référentiel en vigueur ce mois-là.',
+          ouvrirLeBulletin == null
+              ? 'Les montants sont calculés par le cabinet, selon les taux en vigueur ce mois-là.'
+              : 'Les montants sont calculés par le cabinet, selon les taux en vigueur ce mois-là. '
+                    'Touchez un salarié pour ouvrir son bulletin.',
           style: theme.textTheme.bodySmall?.copyWith(
             color: theme.colorScheme.onSurfaceVariant,
           ),

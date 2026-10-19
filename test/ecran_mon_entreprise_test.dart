@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:cga_mobile/composants/actions.dart';
 import 'package:cga_mobile/domaine/document_recu.dart';
 import 'package:cga_mobile/domaine/echeance.dart';
 import 'package:cga_mobile/domaine/mon_entreprise.dart';
@@ -30,6 +33,9 @@ class SessionFeinte implements ServiceDeSession {
   SortDuSignalement sort = SortDuSignalement.transmis;
   final List<({String nature, String message})> signalements = [];
 
+  /// Posée : l'envoi reste en route tant que le test ne la complète pas.
+  Completer<SortDuSignalement>? attente;
+
   @override
   Future<bool> ouvrirUneSession(String c, String m) async => true;
   @override
@@ -57,7 +63,8 @@ class SessionFeinte implements ServiceDeSession {
     required String message,
   }) async {
     signalements.add((nature: nature, message: message));
-    return sort;
+    final a = attente;
+    return a == null ? sort : a.future;
   }
 
   @override
@@ -142,7 +149,7 @@ void main() {
         theme: themeClair(),
         home: EcranMonEntreprise(
           session: s,
-          dossiers: const ['M081234567890P'],
+          dossier: 'M081234567890P',
           quandSessionExpire: quandSessionExpire ?? () {},
         ),
       ),
@@ -259,11 +266,80 @@ void main() {
       );
       await testeur.pumpAndSettle();
 
-      final bouton = testeur.widget<FilledButton>(
+      final bouton = testeur.widget<BoutonDAction>(
         find.byKey(const Key('envoyer-le-signalement')),
       );
-      expect(bouton.onPressed, isNull);
+      expect(bouton.surAppui, isNull);
       expect(session.signalements, isEmpty);
+    });
+
+    testWidgets(
+      'l\'envoi se voit, et une panne garde le texte dans la boîte ouverte',
+      (testeur) async {
+        // ⚠️ 20 octobre 2026 : la boîte se fermait AVANT l'envoi. Rien ne disait
+        // qu'il était en cours, et une panne perdait un message tapé lettre à
+        // lettre.
+        final session = await poser(
+          testeur,
+          fiche: Fiche(entreprise: entreprise()),
+        );
+        await testeur.pumpAndSettle();
+        await testeur.tap(find.byKey(const Key('signaler-un-changement')));
+        await testeur.pumpAndSettle();
+        await testeur.tap(find.byKey(const Key('nature-ADRESSE')));
+        await testeur.pumpAndSettle();
+        await testeur.enterText(
+          find.byKey(const Key('message-du-signalement')),
+          'Nouvelle adresse : Bonapriso',
+        );
+        await testeur.pump();
+
+        session.attente = Completer();
+        await testeur.tap(find.byKey(const Key('envoyer-le-signalement')));
+        await testeur.pump();
+        expect(find.text('Envoi…'), findsOneWidget);
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+        session.attente!.complete(SortDuSignalement.indisponible);
+        await testeur.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsOneWidget);
+        expect(find.byKey(const Key('echec-du-signalement')), findsOneWidget);
+        expect(find.text('Nouvelle adresse : Bonapriso'), findsOneWidget);
+
+        // Le réseau revient : « Réessayer » repart avec le même texte.
+        session.attente = null;
+        await testeur.tap(find.text('Réessayer'));
+        await testeur.pumpAndSettle();
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(
+          session.signalements.last.message,
+          'Nouvelle adresse : Bonapriso',
+        );
+      },
+    );
+
+    testWidgets('un « Annuler » de travers ne jette pas le texte', (
+      testeur,
+    ) async {
+      await poser(testeur, fiche: Fiche(entreprise: entreprise()));
+      await testeur.pumpAndSettle();
+      Future<void> ouvrir() async {
+        await testeur.tap(find.byKey(const Key('signaler-un-changement')));
+        await testeur.pumpAndSettle();
+        await testeur.tap(find.byKey(const Key('nature-ADRESSE')));
+        await testeur.pumpAndSettle();
+      }
+
+      await ouvrir();
+      await testeur.enterText(
+        find.byKey(const Key('message-du-signalement')),
+        'Nous avons déménagé',
+      );
+      await testeur.tap(find.text('Annuler'));
+      await testeur.pumpAndSettle();
+      await ouvrir();
+
+      expect(find.text('Nous avons déménagé'), findsOneWidget);
     });
 
     testWidgets('un double appui n\'est pas présenté comme un échec', (

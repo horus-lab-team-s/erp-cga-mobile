@@ -52,7 +52,7 @@ void main() {
         theme: themeClair(),
         home: EcranMaPaie(
           espace: EspaceFeint(paie: _paie()),
-          dossiers: const ['M081234567890P'],
+          dossier: 'M081234567890P',
           quandSessionExpire: () {},
           aujourdHui: DateTime(2026, 10, 18),
         ),

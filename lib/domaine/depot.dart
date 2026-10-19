@@ -47,6 +47,7 @@ class Depot {
     this.motifDuRefus,
     this.dernierEssaiLe,
     this.connaissance,
+    this.demande,
   });
 
   /// Engendré sur l'appareil. ⚠️ Il ne sert qu'ICI, à retrouver le dépôt dans la
@@ -96,6 +97,16 @@ class Depot {
   /// Ce que l'adhérent a dit de la pièce avant de l'envoyer, s'il l'a dit.
   final ConnaissanceDeLaPiece? connaissance;
 
+  /// La demande du cabinet à laquelle la pièce répond (« DP-2026-002 »), quand le
+  /// dépôt part de sa carte sur l'accueil (20 octobre 2026).
+  ///
+  /// ⚠️ GARDÉE SUR LE TÉLÉPHONE, PAS ENVOYÉE. La route de dépôt refuse tout champ
+  /// qu'elle ne connaît pas (`extra="forbid"`), et elle ne connaît pas la demande :
+  /// l'envoyer ferait refuser la pièce entière. La file s'en sert pour dire, sur
+  /// la vignette, à quoi la pièce répond ; le jour où le serveur l'acceptera,
+  /// `Remise` n'aura qu'à la joindre.
+  final String? demande;
+
   Depot avec({
     EtatDuDepot? etat,
     int? tentatives,
@@ -112,6 +123,7 @@ class Depot {
       motifDuRefus: motifDuRefus ?? this.motifDuRefus,
       dernierEssaiLe: dernierEssaiLe ?? this.dernierEssaiLe,
       connaissance: connaissance,
+      demande: demande,
     );
   }
 
@@ -126,6 +138,7 @@ class Depot {
     if (dernierEssaiLe != null)
       'dernier_essai_le': dernierEssaiLe!.toIso8601String(),
     if (connaissance != null) 'connaissance': connaissance!.versJson(),
+    if (demande != null) 'demande': demande,
   };
 
   static Depot depuisJson(Map<String, dynamic> json) => Depot(
@@ -144,5 +157,6 @@ class Depot {
             json['connaissance'] as Map<String, dynamic>,
           )
         : null,
+    demande: json['demande'] as String?,
   );
 }

@@ -5,7 +5,9 @@ import 'package:flutter/services.dart';
 import '../marque.dart';
 import '../domaine/depot.dart';
 import '../domaine/file_d_attente.dart';
+import '../domaine/fraicheur.dart';
 import '../domaine/prise_de_vue.dart';
+import '../domaine/rappels.dart';
 import '../ports/memoire_des_dossiers.dart';
 import '../ports/service_de_l_espace.dart';
 import '../ports/service_de_session.dart';
@@ -62,7 +64,20 @@ class Coquille extends StatefulWidget {
     required this.espace,
     this.fichiers,
     this.memoire,
+    this.rappels,
+    this.version,
+    this.demanderUnLien,
   });
+
+  /// Les rappels d'échéances posés sur le téléphone (20 octobre 2026). `null` :
+  /// aucun rappel, et pas de réglage dans « Mon espace ».
+  final Rappels? rappels;
+
+  /// La version de l'application, pour « Mon compte ».
+  final String? version;
+
+  /// Le lien de réinitialisation du mot de passe, pour « Mon compte ».
+  final Future<bool> Function(String courriel)? demanderUnLien;
 
   /// Les derniers dossiers connus, pour déposer sans réseau (19 octobre 2026).
   final MemoireDesDossiers? memoire;
@@ -113,6 +128,22 @@ class _EtatDeLaCoquille extends State<Coquille> {
   /// réponse, pas une attente.
   List<String>? _dossiers;
 
+  /// LE dossier en cours, pour tous les écrans (20 octobre 2026).
+  ///
+  /// ⚠️ UN SEUL CHOIX, TENU ICI. Chaque écran choisissait le sien, et l'accueil, la
+  /// DSF et la paie prenaient d'office le premier : un adhérent à deux entreprises
+  /// lisait la paie de l'une sous l'en-tête de l'autre. Il se choisit désormais
+  /// dans l'en-tête de l'accueil ou de « Mon espace », et vaut partout.
+  ///
+  /// ⚠️ Le premier de la liste par défaut, et seulement par défaut : c'est l'ordre
+  /// du serveur, et presque tous les adhérents n'en ont qu'un.
+  String? _choisi;
+
+  /// Les noms d'entreprise appris en route, par NIU, pour le choix. ⚠️ Le serveur
+  /// ne rend que les NIU des dossiers (`/transverse/moi`) ; le nom vient du mois
+  /// de chaque dossier, la première fois qu'on le lit.
+  final _noms = <String, String>{};
+
   /// Vrai quand le serveur n'a pas répondu et qu'aucune liste n'est connue.
   bool _injoignable = false;
 
@@ -137,7 +168,10 @@ class _EtatDeLaCoquille extends State<Coquille> {
   }
 
   /// Le geste principal : l'onglet de dépôt, puis l'appareil photo, d'un seul appui.
-  void _deposer([SourceDuDepot source = SourceDuDepot.appareil]) {
+  void _deposer([
+    SourceDuDepot source = SourceDuDepot.appareil,
+    String? demande,
+  ]) {
     // Le dépôt est le geste principal : un retour un peu plus franc.
     HapticFeedback.mediumImpact();
     if (_onglet != 2) setState(() => _onglet = 2);
@@ -146,15 +180,31 @@ class _EtatDeLaCoquille extends State<Coquille> {
       (_) => _depot.currentState?.photographier(
         depuisLaGalerie: source == SourceDuDepot.galerie,
         depuisUnFichier: source == SourceDuDepot.fichier,
+        demande: demande,
       ),
     );
   }
 
   /// 19 octobre 2026 : une pièce que le cabinet demande arrive souvent déjà en PDF.
   /// On demande d'où elle vient avant d'ouvrir quoi que ce soit.
-  Future<void> _deposerAuChoix() async {
+  ///
+  /// [demande] : 20 octobre 2026, le numéro de la demande suit la pièce dans la
+  /// file (voir `Depot.demande`).
+  Future<void> _deposerAuChoix([String? demande]) async {
     final source = await choisirLaSourceDuDepot(context, widget.priseDeVue);
-    if (source != null && mounted) _deposer(source);
+    if (source != null && mounted) _deposer(source, demande);
+  }
+
+  /// L'adhérent change d'entreprise : tous les écrans suivent.
+  void _choisirLeDossier(String dossier) {
+    if (dossier == _choisi) return;
+    HapticFeedback.selectionClick();
+    setState(() {
+      _choisi = dossier;
+      _honorairesDus = null;
+    });
+    _fraicheurDesHonoraires.oublier();
+    _lireLesHonoraires();
   }
 
   Future<void> _lireLesDossiers() async {
@@ -172,17 +222,25 @@ class _EtatDeLaCoquille extends State<Coquille> {
         return;
       }
     }
-    if (mounted) setState(() => _dossiers = dossiers);
+    if (mounted) {
+      setState(() {
+        _dossiers = dossiers;
+        final connus = dossiers!;
+        if (_choisi == null || !connus.contains(_choisi)) {
+          _choisi = connus.firstOrNull;
+        }
+      });
+    }
     await _lireLesHonoraires();
   }
 
   /// L'historique des pièces, ouvert PAR-DESSUS la coquille : il a sa propre
   /// flèche de retour, qui ramène à l'accueil.
-  void _ouvrirMesPieces(List<String> dossiers) => Navigator.of(context).push(
+  void _ouvrirMesPieces(String dossier) => Navigator.of(context).push(
     MaterialPageRoute<void>(
       builder: (_) => EcranHistorique(
         session: widget.session,
-        dossiers: dossiers,
+        dossier: dossier,
         quandSessionExpire: widget.quandDeconnecte,
         fichiers: widget.fichiers,
       ),
@@ -199,39 +257,60 @@ class _EtatDeLaCoquille extends State<Coquille> {
   /// retour d'un écran : une période réglée doit faire disparaître la carte.
   int? _honorairesDus;
 
-  Future<void> _lireLesHonoraires() async {
-    final dossiers = _dossiers;
-    if (dossiers == null || dossiers.isEmpty) return;
-    final lue = await widget.espace.mesHonoraires(dossiers.first);
-    if (!mounted || lue.valeur == null) return;
-    setState(() => _honorairesDus = lue.valeur!.du);
+  /// ⚠️ 20 octobre 2026 : relus au retour sur l'accueil seulement si la dernière
+  /// lecture a plus de cinq minutes. Voir `Fraicheur`.
+  final _fraicheurDesHonoraires = Fraicheur();
+
+  Future<void> _lireLesHonoraires({bool siPerime = false}) async {
+    final dossier = _choisi;
+    if (dossier == null) return;
+    if (siPerime && !_fraicheurDesHonoraires.perimee) return;
+    final lue = await widget.espace.mesHonoraires(dossier);
+    final h = lue.valeur;
+    if (!mounted || h == null || dossier != _choisi) return;
+    setState(() => _honorairesDus = h.du);
+    if (lue.copieDu == null) {
+      _fraicheurDesHonoraires.marquer();
+      await widget.rappels?.retenirLesHonoraires(dossier, h);
+    }
   }
 
-  void _ouvrirLesHonoraires(List<String> dossiers) => _ouvrir(
+  void _ouvrirLesHonoraires(String dossier) => _ouvrir(
     () => EcranHonoraires(
       espace: widget.espace,
-      dossiers: dossiers,
+      dossier: dossier,
       quandSessionExpire: widget.quandDeconnecte,
       ouvrirDocument: _ouvrirDocument,
+      apresLecture: (h) => widget.rappels?.retenirLesHonoraires(dossier, h),
     ),
   );
 
-  void _ouvrirMonEntreprise(List<String> dossiers) => _ouvrir(
+  void _ouvrirMonEntreprise(String dossier) => _ouvrir(
     () => EcranMonEntreprise(
       session: widget.session,
-      dossiers: dossiers,
+      dossier: dossier,
       quandSessionExpire: widget.quandDeconnecte,
     ),
   );
+
+  /// « Régler la CNPS », depuis la paie : retour à la coquille, onglet Échéances.
+  void _allerAuxEcheances() {
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    setState(() => _onglet = 1);
+  }
 
   /// Un écran de l'espace, ouvert par-dessus la coquille ; « Plus » se relit au
   /// retour, pour qu'une période réglée ou une pièce versée perde sa pastille.
+  ///
+  /// ⚠️ 20 octobre 2026 : l'accueil aussi, sans attendre ses cinq minutes : une
+  /// période réglée à l'instant doit quitter sa carte tout de suite.
   Future<void> _ouvrir(Widget Function() ecran) async {
     await Navigator.of(
       context,
     ).push(MaterialPageRoute<void>(builder: (_) => ecran()));
     await _plus.currentState?.relire();
     await _lireLesHonoraires();
+    await _tableauDeBord.currentState?.relire(forcer: true);
   }
 
   /// Un PDF servi par une route : note, reçu, facture, DSF déposée.
@@ -267,6 +346,7 @@ class _EtatDeLaCoquille extends State<Coquille> {
     // Reconstruire à chaque passage redemanderait au serveur à chaque coup
     // d'onglet, ce qu'un adhérent en 3G paie.
     final dossiers = _dossiers;
+    final choisi = _choisi;
     // ⚠️ 19 octobre 2026 : le retour d'Android fermait l'application depuis n'importe
     // quel onglet. Il ramène d'abord à l'accueil ; de l'accueil, il quitte.
     return PopScope(
@@ -289,25 +369,34 @@ class _EtatDeLaCoquille extends State<Coquille> {
                   _Injoignable(titre: 'Accueil', reessayer: _lireLesDossiers)
                 else if (dossiers == null)
                   const _EnAttenteDeDossier(titre: 'Accueil')
-                else if (dossiers.isEmpty)
+                else if (choisi == null)
                   const _SansDossier(titre: 'Accueil')
                 else
                   EcranTableauDeBord(
                     key: _tableauDeBord,
                     session: widget.session,
                     tableau: widget.tableau,
+                    dossier: choisi,
                     dossiers: dossiers,
+                    noms: _noms,
+                    choisirLeDossier: _choisirLeDossier,
+                    quandNomConnu: (d, nom) {
+                      if (_noms[d] != nom) setState(() => _noms[d] = nom);
+                    },
+                    apresLecture: (e) =>
+                        widget.rappels?.retenirLesEcheances(choisi, e),
+                    deposerPourLaDemande: _deposerAuChoix,
                     quandSessionExpire: widget.quandDeconnecte,
                     // « Déposer une pièce » depuis l'accueil ouvre l'appareil photo.
                     allerALOnglet: (i) => i == EcranTableauDeBord.ongletDeposer
                         ? _deposer()
                         : setState(() => _onglet = i),
                     deposerAuChoix: _deposerAuChoix,
-                    ouvrirMesPieces: () => _ouvrirMesPieces(dossiers),
+                    ouvrirMesPieces: () => _ouvrirMesPieces(choisi),
                     ouvrirPiece: widget.fichiers == null ? null : _ouvrirPiece,
                     honorairesDus: _honorairesDus,
-                    ouvrirHonoraires: () => _ouvrirLesHonoraires(dossiers),
-                    ouvrirMonEntreprise: () => _ouvrirMonEntreprise(dossiers),
+                    ouvrirHonoraires: () => _ouvrirLesHonoraires(choisi),
+                    ouvrirMonEntreprise: () => _ouvrirMonEntreprise(choisi),
                     seDeconnecter: () async {
                       await widget.session.fermerLaSession();
                       widget.quandDeconnecte();
@@ -321,15 +410,17 @@ class _EtatDeLaCoquille extends State<Coquille> {
                   )
                 else if (dossiers == null)
                   const _EnAttenteDeDossier(titre: 'Mes échéances')
-                else if (dossiers.isEmpty)
+                else if (choisi == null)
                   const _SansDossier(titre: 'Mes échéances')
                 else
                   EcranEcheances(
                     session: widget.session,
-                    dossiers: dossiers,
+                    dossier: choisi,
                     quandSessionExpire: widget.quandDeconnecte,
                     priseDeVue: widget.priseDeVue,
                     espace: widget.espace,
+                    apresLecture: (e) =>
+                        widget.rappels?.retenirLesEcheances(choisi, e),
                   ),
                 // ── 2. Déposer ─────────────────────────────────────────────────
                 // ⚠️ Le dépôt, LUI, se construit tout de suite : la file d'attente
@@ -342,12 +433,15 @@ class _EtatDeLaCoquille extends State<Coquille> {
                   priseDeVue: widget.priseDeVue,
                   remettre: widget.remettre,
                   quandDeconnecte: widget.quandDeconnecte,
-                  dossiers: dossiers ?? const [],
+                  // ⚠️ 20 octobre 2026 : le dossier CHOISI, seul. L'écran demandait
+                  // « Pour quelle entreprise ? » à chaque photo ; le choix de
+                  // l'en-tête vaut ici comme ailleurs.
+                  dossiers: choisi == null ? const [] : [choisi],
                   // ⚠️ Tant que les dossiers ne sont pas lus, pas de porte : elle
                   // ouvrirait sur un écran qui ne saurait pas quoi demander.
-                  ouvrirLHistorique: dossiers == null || dossiers.isEmpty
+                  ouvrirLHistorique: choisi == null
                       ? null
-                      : () => _ouvrirMesPieces(dossiers),
+                      : () => _ouvrirMesPieces(choisi),
                   compteurEnAttente: _enAttente,
                 ),
                 // ── 3. Documents ───────────────────────────────────────────────
@@ -358,18 +452,18 @@ class _EtatDeLaCoquille extends State<Coquille> {
                   )
                 else if (dossiers == null)
                   const _EnAttenteDeDossier(titre: 'Mes documents')
-                else if (dossiers.isEmpty)
+                else if (choisi == null)
                   const _SansDossier(titre: 'Mes documents')
                 else
                   EcranDocuments(
                     session: widget.session,
-                    dossiers: dossiers,
+                    dossier: choisi,
                     quandSessionExpire: widget.quandDeconnecte,
                     // ⚠️ « Documents » est l'onglet où l'on cherche un document,
                     // quel qu'en soit le sens. Les accusés déposés PAR le cabinet
                     // y étaient seuls ; les pièces remises AU cabinet vivaient
                     // sur un écran auquel rien ne menait depuis ici.
-                    ouvrirLHistorique: () => _ouvrirMesPieces(dossiers),
+                    ouvrirLHistorique: () => _ouvrirMesPieces(choisi),
                     // 18 octobre 2026 : chaque accusé a son reçu PDF, qui s'ouvre ici.
                     ouvrirLeRecu: (dossier, numero) => _ouvrirDocument(
                       '/obligations/dossiers/${Uri.encodeComponent(dossier)}'
@@ -385,18 +479,24 @@ class _EtatDeLaCoquille extends State<Coquille> {
                   _Injoignable(titre: 'Mon espace', reessayer: _lireLesDossiers)
                 else if (dossiers == null)
                   const _EnAttenteDeDossier(titre: 'Mon espace')
-                else if (dossiers.isEmpty)
+                else if (choisi == null)
                   const _SansDossier(titre: 'Mon espace')
                 else
                   EcranPlus(
                     key: _plus,
                     espace: widget.espace,
-                    dossier: dossiers.first,
-                    ouvrirHonoraires: () => _ouvrirLesHonoraires(dossiers),
+                    dossier: choisi,
+                    dossiers: dossiers,
+                    noms: _noms,
+                    choisirLeDossier: _choisirLeDossier,
+                    rappels: widget.rappels,
+                    version: widget.version,
+                    demanderUnLien: widget.demanderUnLien,
+                    ouvrirHonoraires: () => _ouvrirLesHonoraires(choisi),
                     ouvrirMaDsf: () => _ouvrir(
                       () => EcranMaDsf(
                         espace: widget.espace,
-                        dossiers: dossiers,
+                        dossier: choisi,
                         priseDeVue: widget.priseDeVue,
                         quandSessionExpire: widget.quandDeconnecte,
                         ouvrirDocument: _ouvrirDocument,
@@ -405,12 +505,14 @@ class _EtatDeLaCoquille extends State<Coquille> {
                     ouvrirMaPaie: () => _ouvrir(
                       () => EcranMaPaie(
                         espace: widget.espace,
-                        dossiers: dossiers,
+                        dossier: choisi,
                         quandSessionExpire: widget.quandDeconnecte,
+                        ouvrirDocument: _ouvrirDocument,
+                        reglerLaCnps: _allerAuxEcheances,
                       ),
                     ),
-                    ouvrirMonEntreprise: () => _ouvrirMonEntreprise(dossiers),
-                    ouvrirMesPieces: () => _ouvrirMesPieces(dossiers),
+                    ouvrirMonEntreprise: () => _ouvrirMonEntreprise(choisi),
+                    ouvrirMesPieces: () => _ouvrirMesPieces(choisi),
                     seDeconnecter: () async {
                       await widget.session.fermerLaSession();
                       widget.quandDeconnecte();
@@ -443,10 +545,12 @@ class _EtatDeLaCoquille extends State<Coquille> {
             // plus léger du système : il dit « c'est pris », sans secouer.
             HapticFeedback.selectionClick();
             setState(() => _onglet = i);
-            if (i == 4) _plus.currentState?.relire();
+            // ⚠️ 20 octobre 2026 : seulement si la dernière lecture a plus de
+            // cinq minutes. Voir `Fraicheur`.
+            if (i == 4) _plus.currentState?.relire(siPerime: true);
             if (i == 0) {
               _tableauDeBord.currentState?.relire();
-              _lireLesHonoraires();
+              _lireLesHonoraires(siPerime: true);
             }
           },
           surDeposer: _deposer,
@@ -750,11 +854,15 @@ class _BarreDuBas extends StatelessWidget {
                 ),
                 // 18 octobre 2026 : « Plus » remplace « Entreprise », qui y
                 // descend avec les honoraires, la DSF et la paie.
+                //
+                // ⚠️ 20 octobre 2026 : l'onglet dit ce qu'il ouvre, « Espace » (l'écran
+                // s'intitule « Mon espace »). « Plus » ne disait rien ; « Mon espace »
+                // en entier se coupait en « Mon espa… » sur un écran de 360 points.
                 _Onglet(
                   cle: 'onglet-plus',
                   icone: Icons.grid_view_outlined,
                   iconeChoisie: Icons.grid_view_rounded,
-                  libelle: 'Plus',
+                  libelle: 'Espace',
                   choisi: onglet == 4,
                   surAppui: () => surChoix(4),
                 ),

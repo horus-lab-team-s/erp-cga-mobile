@@ -161,7 +161,7 @@ void main() {
         theme: themeClair(),
         home: EcranEcheances(
           session: s,
-          dossiers: const ['M081234567890P'],
+          dossier: 'M081234567890P',
           quandSessionExpire: quandSessionExpire ?? () {},
           priseDeVue: prise,
           espace: espace,
@@ -389,6 +389,7 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 120));
       });
       await testeur.pumpAndSettle();
+      await envoyerLaQuittanceRevue(testeur);
 
       expect(appareil.prises, 1);
       expect(session.preuves, const ['CNPS']);
@@ -442,6 +443,7 @@ void main() {
           await Future<void>.delayed(const Duration(milliseconds: 120));
         });
         await testeur.pumpAndSettle();
+        await envoyerLaQuittanceRevue(testeur);
 
         expect(find.textContaining('est arrivée au cabinet'), findsOneWidget);
         expect(find.textContaining('Inutile de la reprendre'), findsOneWidget);
@@ -463,6 +465,13 @@ void main() {
     expect(session.demandes.length, 1);
 
     session.echeancier = Echeancier(echeances: [echeance(jours: 1)]);
+    // ⚠️ 20 octobre 2026 : pas dans les cinq minutes qui suivent une lecture
+    // (voir `Fraicheur`). Aucune échéance ne se franchit dans l'intervalle.
+    testeur.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await testeur.pumpAndSettle();
+    expect(session.demandes.length, 1);
+
+    await testeur.pump(const Duration(minutes: 6));
     testeur.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await testeur.pumpAndSettle();
 
@@ -515,6 +524,42 @@ void main() {
     },
   );
 
+  testWidgets(
+    'Après la demande, la carte attend la validation, puis dit les fonds reçus',
+    (testeur) async {
+      // ⚠️ 20 octobre 2026 : la carte gardait son bouton « Régler » après la
+      // demande, et l'adhérent qui venait de composer son code payait deux fois.
+      final espace = EspaceFeint(fonds: sousMandat());
+      await poser(
+        testeur,
+        echeancier: Echeancier(echeances: [echeance()]),
+        espace: espace,
+      );
+      await testeur.pumpAndSettle();
+      await testeur.tap(find.byKey(const Key('regler-CNPS')));
+      await testeur.pumpAndSettle();
+      await testeur.enterText(
+        find.byKey(const Key('numero-mobile-money')),
+        '677123456',
+      );
+      await testeur.tap(find.byKey(const Key('confirmer-le-paiement')));
+      await testeur.pumpAndSettle();
+      await testeur.tap(find.text('J\'ai compris'));
+      await testeur.pumpAndSettle();
+
+      expect(find.text('Paiement en attente de validation'), findsOneWidget);
+      expect(find.text('Régler par mobile money'), findsNothing);
+
+      espace.fonds = sousMandat(etat: 'FONDS_RECUS');
+      await testeur.pump(const Duration(seconds: 10));
+      await testeur.pumpAndSettle();
+
+      expect(find.textContaining('Fonds reçus pour'), findsOneWidget);
+      expect(find.text('Paiement en attente de validation'), findsNothing);
+      await testeur.pump(const Duration(seconds: 30));
+    },
+  );
+
   testWidgets('Les fonds reçus, l\'échéance dit que le cabinet paie', (
     testeur,
   ) async {
@@ -550,4 +595,23 @@ void main() {
       expect(find.text('Le demander au cabinet'), findsOneWidget);
     },
   );
+}
+
+/// 20 octobre 2026 : la quittance passe par l'aperçu avant de partir. On l'envoie.
+Future<void> envoyerLaQuittanceRevue(WidgetTester testeur) async {
+  expect(find.text('Vérifier la quittance'), findsOneWidget);
+  // ⚠️ Pas de formulaire : ce que la quittance règle, l'écran le sait déjà.
+  expect(find.byKey(const Key('apercu-emetteur')), findsNothing);
+  await testeur.scrollUntilVisible(
+    find.byKey(const Key('apercu-envoyer')),
+    300,
+    scrollable: find.byType(Scrollable).last,
+  );
+  await testeur.ensureVisible(find.byKey(const Key('apercu-envoyer')));
+  await testeur.pumpAndSettle();
+  await testeur.runAsync(() async {
+    await testeur.tap(find.byKey(const Key('apercu-envoyer')));
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+  });
+  await testeur.pumpAndSettle();
 }
