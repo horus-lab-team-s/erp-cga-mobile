@@ -293,7 +293,10 @@ class ClientApi
   Future<List<String>> mesDossiers() async {
     final moi = await lire('/transverse/moi');
     if (moi is! Map<String, dynamic>) {
-      return const [];
+      // ⚠️ 19 octobre 2026 : une panne n'est pas une absence de dossier. Rendre une
+      // liste vide affichait « Aucun dossier à votre nom » à qui n'avait que perdu
+      // le réseau, sans rien pour réessayer.
+      throw const HttpException('dossiers illisibles');
     }
     final dossiers = moi['dossiers'];
     if (dossiers is! List) {

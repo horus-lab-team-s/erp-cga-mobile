@@ -12,6 +12,7 @@ import 'package:cga_mobile/domaine/piece_remise.dart';
 import 'package:cga_mobile/domaine/prise_de_vue.dart';
 import 'package:cga_mobile/ecrans/coquille.dart';
 import 'package:cga_mobile/marque.dart';
+import 'package:cga_mobile/ports/memoire_des_dossiers.dart';
 import 'package:cga_mobile/ports/appareil_photo.dart';
 import 'package:cga_mobile/ports/service_de_session.dart';
 import 'package:flutter/material.dart';
@@ -132,6 +133,7 @@ void main() {
     WidgetTester testeur, {
     SessionFeinte? session,
     EspaceFeint? espace,
+    MemoireDesDossiers? memoire,
   }) async {
     final s = session ?? SessionFeinte();
     espace ??= EspaceFeint();
@@ -146,6 +148,7 @@ void main() {
           quandDeconnecte: () {},
           tableau: TableauFeint(),
           espace: espace,
+          memoire: memoire,
         ),
       ),
     );
@@ -403,9 +406,27 @@ void main() {
     // lui-même. Il a déménagé avec la responsabilité.
     await poser(testeur, session: SessionFeinte(panne: true));
 
-    expect(find.text('Aucun dossier à votre nom'), findsOneWidget);
+    // ⚠️ 19 octobre 2026 : « Aucun dossier à votre nom » s'affichait à qui n'avait
+    // que perdu le réseau, sans rien pour réessayer.
+    expect(find.text('Pas de réseau'), findsOneWidget);
+    expect(find.text('Aucun dossier à votre nom'), findsNothing);
+    expect(find.byKey(const Key('reessayer-dossiers')), findsOneWidget);
     expect(find.byKey(const Key('onglet-deposer')), findsOneWidget);
   });
+
+  testWidgets(
+    'Sans réseau, les derniers dossiers connus gardent le dépôt ouvert',
+    (testeur) async {
+      await poser(
+        testeur,
+        session: SessionFeinte(panne: true),
+        memoire: _MemoireFeinte(['M081234567890P']),
+      );
+
+      expect(find.text('Pas de réseau'), findsNothing);
+      expect(find.byKey(const Key('salutation')), findsOneWidget);
+    },
+  );
 
   testWidgets("Changer d'onglet ne perd pas l'écran qu'on quitte", (
     testeur,
@@ -461,4 +482,15 @@ void main() {
       },
     );
   });
+}
+
+class _MemoireFeinte implements MemoireDesDossiers {
+  _MemoireFeinte(this._dossiers);
+  List<String>? _dossiers;
+
+  @override
+  Future<List<String>?> lire() async => _dossiers;
+
+  @override
+  Future<void> retenir(List<String> dossiers) async => _dossiers = dossiers;
 }

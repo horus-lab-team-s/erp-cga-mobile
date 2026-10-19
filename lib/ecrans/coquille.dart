@@ -6,6 +6,7 @@ import '../marque.dart';
 import '../domaine/depot.dart';
 import '../domaine/file_d_attente.dart';
 import '../domaine/prise_de_vue.dart';
+import '../ports/memoire_des_dossiers.dart';
 import '../ports/service_de_l_espace.dart';
 import '../ports/service_de_session.dart';
 import '../ports/service_des_fichiers.dart';
@@ -60,7 +61,11 @@ class Coquille extends StatefulWidget {
     required this.tableau,
     required this.espace,
     this.fichiers,
+    this.memoire,
   });
+
+  /// Les derniers dossiers connus, pour déposer sans réseau (19 octobre 2026).
+  final MemoireDesDossiers? memoire;
 
   /// Honoraires, DSF, paie et documents servis par une route (18 octobre 2026).
   final ServiceDeLEspace espace;
@@ -108,6 +113,9 @@ class _EtatDeLaCoquille extends State<Coquille> {
   /// réponse, pas une attente.
   List<String>? _dossiers;
 
+  /// Vrai quand le serveur n'a pas répondu et qu'aucune liste n'est connue.
+  bool _injoignable = false;
+
   /// Combien de pièces attendent encore de partir.
   ///
   /// ⚠️ UNE SEULE SOURCE, TENUE PAR L'ÉCRAN QUI RELIT LA FILE. La barre du bas
@@ -129,11 +137,19 @@ class _EtatDeLaCoquille extends State<Coquille> {
   }
 
   Future<void> _lireLesDossiers() async {
-    List<String> dossiers;
+    if (_injoignable && mounted) setState(() => _injoignable = false);
+    List<String>? dossiers;
     try {
       dossiers = await widget.session.mesDossiers();
+      await widget.memoire?.retenir(dossiers);
     } on Object {
-      dossiers = const [];
+      // ⚠️ 19 octobre 2026 : la panne se dit « pas de réseau », avec un bouton pour
+      // réessayer ; les derniers dossiers connus permettent encore de déposer.
+      dossiers = await widget.memoire?.lire();
+      if (dossiers == null || dossiers.isEmpty) {
+        if (mounted) setState(() => _injoignable = true);
+        return;
+      }
     }
     if (mounted) setState(() => _dossiers = dossiers);
     await _lireLesHonoraires();
@@ -240,7 +256,9 @@ class _EtatDeLaCoquille extends State<Coquille> {
             index: _onglet,
             children: [
               // ── 0. Accueil ─────────────────────────────────────────────────
-              if (dossiers == null)
+              if (dossiers == null && _injoignable)
+                _Injoignable(titre: 'Accueil', reessayer: _lireLesDossiers)
+              else if (dossiers == null)
                 const _EnAttenteDeDossier(titre: 'Accueil')
               else if (dossiers.isEmpty)
                 const _SansDossier(titre: 'Accueil')
@@ -263,7 +281,12 @@ class _EtatDeLaCoquille extends State<Coquille> {
                   },
                 ),
               // ── 1. Échéances ───────────────────────────────────────────────
-              if (dossiers == null)
+              if (dossiers == null && _injoignable)
+                _Injoignable(
+                  titre: 'Mes échéances',
+                  reessayer: _lireLesDossiers,
+                )
+              else if (dossiers == null)
                 const _EnAttenteDeDossier(titre: 'Mes échéances')
               else if (dossiers.isEmpty)
                 const _SansDossier(titre: 'Mes échéances')
@@ -295,7 +318,12 @@ class _EtatDeLaCoquille extends State<Coquille> {
                 compteurEnAttente: _enAttente,
               ),
               // ── 3. Documents ───────────────────────────────────────────────
-              if (dossiers == null)
+              if (dossiers == null && _injoignable)
+                _Injoignable(
+                  titre: 'Mes documents',
+                  reessayer: _lireLesDossiers,
+                )
+              else if (dossiers == null)
                 const _EnAttenteDeDossier(titre: 'Mes documents')
               else if (dossiers.isEmpty)
                 const _SansDossier(titre: 'Mes documents')
@@ -320,7 +348,9 @@ class _EtatDeLaCoquille extends State<Coquille> {
               // 18 octobre 2026 : honoraires, DSF, paie, entreprise et pièces
               // envoyées, à un toucher. « Entreprise » y descend : on la consulte
               // rarement, et la barre ne tient pas un sixième onglet.
-              if (dossiers == null)
+              if (dossiers == null && _injoignable)
+                _Injoignable(titre: 'Mon espace', reessayer: _lireLesDossiers)
+              else if (dossiers == null)
                 const _EnAttenteDeDossier(titre: 'Mon espace')
               else if (dossiers.isEmpty)
                 const _SansDossier(titre: 'Mon espace')
@@ -414,6 +444,63 @@ class _EnAttenteDeDossier extends StatelessWidget {
 /// ⚠️ On le DIT, au lieu d'interroger le serveur avec un dossier vide et de
 /// laisser l'écran conclure à une panne de réseau. Ce sont deux situations
 /// différentes, et une seule appelle un appel au cabinet.
+/// Le serveur n'a pas répondu, et aucune liste de dossiers n'est connue.
+class _Injoignable extends StatelessWidget {
+  const _Injoignable({required this.titre, required this.reessayer});
+
+  final String titre;
+  final Future<void> Function() reessayer;
+
+  @override
+  Widget build(BuildContext context) {
+    final couleurs = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(title: Text(titre)),
+      body: RefreshIndicator(
+        onRefresh: reessayer,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(32, 90, 32, 32),
+          children: [
+            Icon(
+              Icons.wifi_off_rounded,
+              size: 44,
+              color: couleurs.onSurfaceVariant,
+            ),
+            const SizedBox(height: 18),
+            Text(
+              'Pas de réseau',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: couleurs.onSurface,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Le cabinet ne répond pas pour l\'instant. Vérifiez votre connexion, '
+              'puis réessayez.',
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: couleurs.onSurfaceVariant,
+                height: 1.5,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Center(
+              child: FilledButton.icon(
+                key: const Key('reessayer-dossiers'),
+                onPressed: reessayer,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Réessayer'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _SansDossier extends StatelessWidget {
   const _SansDossier({required this.titre});
 

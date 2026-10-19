@@ -6,10 +6,12 @@ import 'package:path_provider/path_provider.dart';
 
 import 'adaptateurs/appareil_photo_systeme.dart';
 import 'adaptateurs/magasin_fichier.dart';
+import 'adaptateurs/memoire_des_dossiers_fichier.dart';
 import 'api/client_api.dart';
 import 'api/remise.dart';
 import 'domaine/file_d_attente.dart';
 import 'domaine/prise_de_vue.dart';
+import 'ports/memoire_des_dossiers.dart';
 import 'marque.dart';
 import 'ecrans/coquille.dart';
 import 'ecrans/offre.dart';
@@ -59,6 +61,7 @@ class _EtatDeLApplication extends State<ApplicationCga> {
     base: Uri.parse(ClientApi.adresseParDefaut),
   );
   FileDAttente? _file;
+  MemoireDesDossiers? _memoire;
   PriseDeVue? _priseDeVue;
   bool _connecte = false;
 
@@ -79,6 +82,7 @@ class _EtatDeLApplication extends State<ApplicationCga> {
     final file = FileDAttente(MagasinDeFichier(dossier));
     setState(() {
       _file = file;
+      _memoire = MemoireDesDossiersFichier(dossier);
       _priseDeVue = PriseDeVue(
         appareil: AppareilPhotoDuSysteme(),
         galerie: GalerieDuSysteme(),
@@ -136,6 +140,7 @@ class _EtatDeLApplication extends State<ApplicationCga> {
           tableau: _client,
           fichiers: _client,
           espace: _client,
+          memoire: _memoire,
         ),
         // ⚠️ L'APPLICATION NE S'OUVRE PLUS SUR UN MUR DE CONNEXION.
         //
