@@ -690,12 +690,15 @@ class _BandeauDuMois extends StatelessWidget {
     final texte = Theme.of(context).textTheme;
     final (icone, teinte) = switch (mois.etat) {
       EtatDuMois.aEnvoyer => (Icons.upload_file, couleurs.error),
-      EtatDuMois.aucunePiece => (Icons.inbox_outlined, Marque.alerte),
+      EtatDuMois.aucunePiece => (
+        Icons.inbox_outlined,
+        Marque.alerteDe(context),
+      ),
       EtatDuMois.enVerification => (
         Icons.manage_search,
         couleurs.onSecondaryContainer,
       ),
-      EtatDuMois.complet => (Icons.task_alt, Marque.reussite),
+      EtatDuMois.complet => (Icons.task_alt, Marque.reussiteDe(context)),
     };
     return Carte(
       key: const Key('bandeau-du-mois'),
@@ -856,7 +859,7 @@ class _CarteAttendue extends StatelessWidget {
                 Icon(
                   Icons.check_circle_outline,
                   size: 18,
-                  color: Marque.reussite,
+                  color: Marque.reussiteDe(context),
                 ),
                 const SizedBox(width: 6),
                 Expanded(
@@ -1106,8 +1109,8 @@ class _TroisChiffres extends StatelessWidget {
     ) {
       final teinte = switch (cle) {
         _ when alerte => couleurs.error,
-        'chiffre-documents' => Marque.reussite,
-        'chiffre-retards' => Marque.indigo700,
+        'chiffre-documents' => Marque.reussiteDe(context),
+        'chiffre-retards' => Marque.indigoDe(context),
         _ => couleurs.primary,
       };
       final nombre = Text(

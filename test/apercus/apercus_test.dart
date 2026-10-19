@@ -96,7 +96,10 @@ Future<void> _photographier(
       key: cle,
       child: MaterialApp(
         debugShowCheckedModeBanner: false,
-        theme: themeClair(),
+        // SOMBRE=1 : le même écran en thème sombre (19 octobre 2026).
+        theme: Platform.environment['SOMBRE'] == '1'
+            ? themeSombre()
+            : themeClair(),
         home: ecran,
       ),
     ),

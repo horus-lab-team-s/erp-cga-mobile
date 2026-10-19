@@ -434,7 +434,11 @@ class _PeriodeReglee extends StatelessWidget {
         children: [
           Row(
             children: [
-              Icon(Icons.check_circle, size: 20, color: Marque.reussite),
+              Icon(
+                Icons.check_circle,
+                size: 20,
+                color: Marque.reussiteDe(context),
+              ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(_periode(p), style: theme.textTheme.titleSmall),

@@ -96,6 +96,27 @@ abstract final class Marque {
 
   static const reussiteSombre = Color(0xFF4CC38A);
   static const reussite100Sombre = Color(0xFF14312A);
+
+  // ── Les teintes d'état, selon le thème (19 octobre 2026) ─────────────────
+  //
+  // ⚠️ Le vert, l'ambre et l'indigo de la marque sont calculés pour un fond CLAIR.
+  // Posés tels quels sur une carte sombre, le vert de « réglée » tombait à 3:1 et
+  // l'indigo d'une icône disparaissait presque. Un texte ou une icône d'état prend
+  // donc sa teinte ici, qui suit le thème.
+  static bool _sombre(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark;
+
+  static Color reussiteDe(BuildContext context) =>
+      _sombre(context) ? reussiteSombre : reussite;
+
+  static Color reussiteDouceDe(BuildContext context) =>
+      _sombre(context) ? reussite100Sombre : reussite100;
+
+  static Color alerteDe(BuildContext context) =>
+      _sombre(context) ? alerteSombre : alerte;
+
+  static Color indigoDe(BuildContext context) =>
+      _sombre(context) ? indigo700Sombre : indigo700;
   static const alerteSombre = Color(0xFFE0A458);
   static const alerte100Sombre = Color(0xFF3A2A16);
   static const dangerSombre = Color(0xFFF2726A);

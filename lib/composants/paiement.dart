@@ -110,14 +110,14 @@ class _EtatDeLaFeuilleDePaiement extends State<FeuilleDePaiement> {
           Container(
             width: 72,
             height: 72,
-            decoration: const BoxDecoration(
-              color: Marque.reussite100,
+            decoration: BoxDecoration(
+              color: Marque.reussiteDouceDe(context),
               shape: BoxShape.circle,
             ),
-            child: const Icon(
+            child: Icon(
               Icons.phone_android,
               size: 36,
-              color: Marque.reussite,
+              color: Marque.reussiteDe(context),
             ),
           ),
           const SizedBox(height: 18),

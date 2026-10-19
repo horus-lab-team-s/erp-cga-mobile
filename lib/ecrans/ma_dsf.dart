@@ -438,7 +438,9 @@ class _Piece extends StatelessWidget {
               Icon(
                 recue ? Icons.check_circle : Icons.radio_button_unchecked,
                 size: 20,
-                color: recue ? Marque.reussite : theme.colorScheme.primary,
+                color: recue
+                    ? Marque.reussiteDe(context)
+                    : theme.colorScheme.primary,
               ),
               const SizedBox(width: 10),
               Expanded(

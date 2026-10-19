@@ -19,6 +19,13 @@ import 'package:cga_mobile/domaine/file_d_attente.dart';
 import 'package:cga_mobile/domaine/prise_de_vue.dart';
 import 'package:cga_mobile/ecrans/accueil.dart';
 import 'package:cga_mobile/ecrans/apercu_du_depot.dart';
+import 'package:cga_mobile/ecrans/tableau_de_bord.dart';
+import 'package:cga_mobile/domaine/document_recu.dart';
+import 'package:cga_mobile/domaine/echeance.dart';
+import 'package:cga_mobile/domaine/mon_entreprise.dart';
+import 'package:cga_mobile/domaine/piece_remise.dart';
+import 'package:cga_mobile/domaine/preuve.dart';
+import 'package:cga_mobile/ports/service_de_session.dart';
 import 'package:cga_mobile/marque.dart';
 import 'package:cga_mobile/ports/appareil_photo.dart';
 import 'package:flutter/material.dart';
@@ -28,6 +35,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../ecran_accueil_test.dart' as accueil_test;
+import '../soutien/tableau_feint.dart';
 
 final _sortie = Platform.environment['APERCUS'];
 final _facture = Platform.environment['FACTURE'];
@@ -76,7 +84,9 @@ Future<void> _chargerLesPolices() async {
 /// retombait sur la police d'essai et dessinait des rectangles noirs. On y met
 /// Inter, la police du texte.
 ThemeData _theme() {
-  final theme = themeClair();
+  final theme = (Platform.environment['SOMBRE'] == '1'
+      ? themeSombre()
+      : themeClair());
   return theme.copyWith(
     chipTheme: theme.chipTheme.copyWith(
       labelStyle: theme.chipTheme.labelStyle?.copyWith(
@@ -250,4 +260,50 @@ void main() {
       EcranApercuDuDepot(chemin: pdf.path, unFichier: true),
     );
   });
+
+  testWidgets('Tableau de bord', skip: passer != null, (t) async {
+    await _photographier(
+      t,
+      'tableau-de-bord',
+      EcranTableauDeBord(
+        session: _SessionDuBanc(),
+        tableau: TableauFeint(),
+        dossier: 'M081234567890P',
+        quandSessionExpire: () {},
+        allerALOnglet: (_) {},
+        ouvrirMesPieces: () {},
+      ),
+      hauteur: 1400,
+    );
+  });
+}
+
+/// Une session qui ne sert que les lectures du tableau de bord (19 octobre 2026).
+class _SessionDuBanc implements ServiceDeSession {
+  @override
+  Future<bool> ouvrirUneSession(String c, String m) async => true;
+  @override
+  Future<void> fermerLaSession() async {}
+  @override
+  Future<List<String>> mesDossiers() async => const ['M081234567890P'];
+  @override
+  Future<Historique> mesPieces(String dossier) async => const Historique();
+  @override
+  Future<Echeancier> mesEcheances(String dossier) async => const Echeancier();
+  @override
+  Future<Preuve> envoyerLaPreuve({
+    required String dossier,
+    required Echeance echeance,
+    required String cheminDeLaPhoto,
+  }) async => Preuve.recue;
+  @override
+  Future<Fiche> monEntreprise(String dossier) async => const Fiche();
+  @override
+  Future<SortDuSignalement> signalerUnChangement({
+    required String dossier,
+    required String nature,
+    required String message,
+  }) async => SortDuSignalement.transmis;
+  @override
+  Future<Documents> mesDocuments(String dossier) async => const Documents();
 }

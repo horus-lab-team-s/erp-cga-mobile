@@ -233,7 +233,10 @@ class Pastille extends StatelessWidget {
         couleurs.primaryContainer,
         couleurs.onPrimaryContainer,
       ),
-      TonDePastille.reussite => (Marque.reussite100, Marque.reussite),
+      TonDePastille.reussite => (
+        Marque.reussiteDouceDe(context),
+        Marque.reussiteDe(context),
+      ),
       TonDePastille.alerte => (
         couleurs.errorContainer,
         couleurs.onErrorContainer,

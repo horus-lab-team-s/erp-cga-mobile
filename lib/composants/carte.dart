@@ -332,7 +332,10 @@ class Etiquette extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final couleurs = Theme.of(context).colorScheme;
-    final teinte = couleur ?? couleurs.onSurfaceVariant;
+    // L'ambre de l'avertissement s'éclaircit en thème sombre (voir `Marque.alerteDe`).
+    final teinte = couleur == Marque.alerte
+        ? Marque.alerteDe(context)
+        : couleur ?? couleurs.onSurfaceVariant;
     final encre = texteSombre ? couleurs.onSurface : teinte;
     return Container(
       // ⚠️ Plus discrète : 9/3 au lieu de 10/5. Une étiquette d'état accompagne

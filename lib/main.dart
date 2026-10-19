@@ -158,12 +158,14 @@ class _EtatDeLApplication extends State<ApplicationCga> {
       // au jugé. L'application était verte : le vert ne figure nulle part dans
       // la marque. Voir `marque.dart`, qui traduit les jetons du web.
       theme: themeClair(),
-      // ⚠️ 18 octobre 2026 : LE THÈME CLAIR, MÊME QUAND LE TÉLÉPHONE EST EN MODE NUIT.
-      // L'application suivait le système : sur un téléphone réglé en nuit, l'adhérent
-      // la voyait toute sombre, cartes violettes sur fond noir, et le cabinet l'a
-      // jugée « vraiment moche ». L'espace adhérent web est clair et doux ; le mobile
-      // lui ressemble désormais. Le thème sombre reste dans `marque.dart`, inemployé.
-      themeMode: ThemeMode.light,
+      // ⚠️ 19 octobre 2026 : LE THÈME SUIT DE NOUVEAU LE TÉLÉPHONE, à la demande du
+      // cabinet. Le 18, il avait été bloqué en clair : le sombre d'alors posait des
+      // cartes violettes à plat sur du noir, « vraiment moche ». Les cartes ont depuis
+      // leur dégradé et leur halo, et les teintes d'état (vert, ambre, indigo) passent
+      // par `Marque.reussiteDe` et ses voisines, qui s'éclaircissent en sombre. Revu
+      // écran par écran sur le banc (`SOMBRE=1`).
+      darkTheme: themeSombre(),
+      themeMode: ThemeMode.system,
       // 19 octobre 2026 : le français pour les textes du système (sélecteur de date,
       // « Coller », « Annuler »), qui s'affichaient en anglais.
       locale: const Locale('fr'),

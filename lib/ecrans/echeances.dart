@@ -708,7 +708,9 @@ class _Voie extends StatelessWidget {
           Icon(
             reverse ? Icons.verified : Icons.hourglass_top_outlined,
             size: 20,
-            color: reverse ? Marque.reussite : theme.colorScheme.primary,
+            color: reverse
+                ? Marque.reussiteDe(context)
+                : theme.colorScheme.primary,
           ),
           const SizedBox(width: 10),
           Expanded(
