@@ -243,7 +243,8 @@ class _EtatDeLaCoquille extends State<Coquille> {
       builder: (_) => EcranVisionneuse(
         fichiers: widget.fichiers!,
         piece: piece,
-        titre: piece,
+        // 19 octobre 2026 : le titre était l'identifiant technique de la pièce.
+        titre: 'Pièce envoyée',
         quandSessionExpire: widget.quandDeconnecte,
       ),
     ),
