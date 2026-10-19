@@ -502,7 +502,9 @@ class _EnTete extends StatelessWidget {
               if (seDeconnecter != null)
                 IconButton(
                   key: const Key('accueil-sortir'),
-                  onPressed: seDeconnecter,
+                  onPressed: () async {
+                    if (await confirmerLaDeconnexion(context)) seDeconnecter!();
+                  },
                   color: Colors.white,
                   tooltip: 'Se déconnecter',
                   icon: const Icon(Icons.logout),

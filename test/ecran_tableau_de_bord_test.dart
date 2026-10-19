@@ -326,6 +326,11 @@ void main() {
     // l'appareil photo : constaté en parcours, personne ne l'y cherche.
     final t = await _poser(testeur);
     await testeur.tap(find.byKey(const Key('accueil-sortir')));
+    await testeur.pumpAndSettle();
+    // 19 octobre 2026 : un seul appui ne suffit plus, on confirme.
+    expect(t.deconnexions, 0);
+    await testeur.tap(find.byKey(const Key('confirmer-deconnexion')));
+    await testeur.pumpAndSettle();
     expect(t.deconnexions, 1);
   });
 

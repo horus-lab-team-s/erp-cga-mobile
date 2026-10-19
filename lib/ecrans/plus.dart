@@ -71,27 +71,7 @@ class EtatDuPlus extends State<EcranPlus> {
   }
 
   Future<void> _confirmerLaDeconnexion() async {
-    final oui = await showDialog<bool>(
-      context: context,
-      builder: (contexte) => AlertDialog(
-        title: const Text('Se déconnecter ?'),
-        content: const Text(
-          'Les pièces qui attendent encore de partir restent sur ce téléphone : elles partiront à votre '
-          'prochaine connexion.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(contexte).pop(false),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(contexte).pop(true),
-            child: const Text('Se déconnecter'),
-          ),
-        ],
-      ),
-    );
-    if (oui == true) await widget.seDeconnecter();
+    if (await confirmerLaDeconnexion(context)) await widget.seDeconnecter();
   }
 
   @override

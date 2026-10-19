@@ -515,6 +515,13 @@ void main() {
 
       await testeur.tap(find.byKey(const Key('bouton-sortir')));
       await testeur.pumpAndSettle();
+      expect(
+        session.fermee,
+        isFalse,
+        reason: 'un seul appui ne déconnecte plus',
+      );
+      await testeur.tap(find.byKey(const Key('confirmer-deconnexion')));
+      await testeur.pumpAndSettle();
 
       expect(session.fermee, isTrue);
       expect(sorti, isTrue);

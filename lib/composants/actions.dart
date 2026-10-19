@@ -279,3 +279,33 @@ Future<T?> ouvrirUneFeuille<T>(
     ),
   );
 }
+
+/// Demande confirmation avant de fermer la session (19 octobre 2026).
+///
+/// ⚠️ Un seul texte, le même partout : l'accueil et l'onglet de dépôt
+/// déconnectaient d'un seul appui, à côté d'icônes qu'on touche souvent. En 3G,
+/// se reconnecter coûte, et les pièces en attente inquiètent.
+Future<bool> confirmerLaDeconnexion(BuildContext context) async {
+  final oui = await showDialog<bool>(
+    context: context,
+    builder: (contexte) => AlertDialog(
+      title: const Text('Se déconnecter ?'),
+      content: const Text(
+        'Les pièces qui attendent encore de partir restent sur ce téléphone : '
+        'elles partiront à votre prochaine connexion.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(contexte).pop(false),
+          child: const Text('Annuler'),
+        ),
+        FilledButton(
+          key: const Key('confirmer-deconnexion'),
+          onPressed: () => Navigator.of(contexte).pop(true),
+          child: const Text('Se déconnecter'),
+        ),
+      ],
+    ),
+  );
+  return oui == true;
+}

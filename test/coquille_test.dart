@@ -98,8 +98,14 @@ class AppareilFeint implements AppareilPhoto {
   AppareilFeint(this.cache);
   final Directory cache;
 
+  /// Combien de fois l'appareil photo s'est ouvert.
+  int ouvertures = 0;
+
   @override
-  Future<String?> photographier() async => null;
+  Future<String?> photographier() async {
+    ouvertures++;
+    return null;
+  }
 }
 
 /// Un dépôt dans la file, pour éprouver le compteur de la barre.
@@ -412,6 +418,38 @@ void main() {
     expect(find.text('Aucun dossier à votre nom'), findsNothing);
     expect(find.byKey(const Key('reessayer-dossiers')), findsOneWidget);
     expect(find.byKey(const Key('onglet-deposer')), findsOneWidget);
+  });
+
+  testWidgets("Le bouton central ouvre l'appareil photo d'un seul appui", (
+    testeur,
+  ) async {
+    // 19 octobre 2026 : depuis un autre onglet, il ne faisait que changer d'onglet.
+    final appareil = AppareilFeint(racine);
+    prise = PriseDeVue(
+      appareil: appareil,
+      file: file,
+      photos: Directory('${racine.path}/photos'),
+    );
+    await poser(testeur);
+
+    await testeur.tap(find.byKey(const Key('onglet-deposer')));
+    await testeur.pumpAndSettle();
+
+    expect(appareil.ouvertures, 1);
+    expect(find.text('Mes justificatifs'), findsOneWidget);
+  });
+
+  testWidgets("Le retour d'Android ramène d'abord à l'accueil", (
+    testeur,
+  ) async {
+    await poser(testeur);
+    await testeur.tap(find.byKey(const Key('onglet-echeances')));
+    await testeur.pumpAndSettle();
+
+    await testeur.binding.handlePopRoute();
+    await testeur.pumpAndSettle();
+
+    expect(find.byKey(const Key('salutation')), findsOneWidget);
   });
 
   testWidgets(

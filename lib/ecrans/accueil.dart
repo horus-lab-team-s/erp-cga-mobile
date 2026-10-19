@@ -134,6 +134,7 @@ class EtatDeLAccueil extends State<EcranAccueil> with WidgetsBindingObserver {
   }
 
   Future<void> _sortir() async {
+    if (!await confirmerLaDeconnexion(context)) return;
     await widget.session.fermerLaSession();
     widget.quandDeconnecte();
   }

@@ -136,6 +136,17 @@ class _EtatDeLaCoquille extends State<Coquille> {
     super.dispose();
   }
 
+  /// Le geste principal : l'onglet de dépôt, puis l'appareil photo, d'un seul appui.
+  void _deposer() {
+    // Le dépôt est le geste principal : un retour un peu plus franc.
+    HapticFeedback.mediumImpact();
+    if (_onglet != 2) setState(() => _onglet = 2);
+    // Après l'image : l'écran de dépôt doit être monté pour ouvrir l'appareil.
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _depot.currentState?.photographier(),
+    );
+  }
+
   Future<void> _lireLesDossiers() async {
     if (_injoignable && mounted) setState(() => _injoignable = false);
     List<String>? dossiers;
@@ -245,182 +256,189 @@ class _EtatDeLaCoquille extends State<Coquille> {
     // Reconstruire à chaque passage redemanderait au serveur à chaque coup
     // d'onglet, ce qu'un adhérent en 3G paie.
     final dossiers = _dossiers;
-    return Scaffold(
-      // ⚠️ La barre FLOTTE au-dessus du contenu : elle est détachée des bords.
-      // Chaque écran laisse `Marque.espaceSousLaBarre` en bas pour que sa
-      // dernière carte ne finisse pas dessous.
-      extendBody: true,
-      body: Stack(
-        children: [
-          IndexedStack(
-            index: _onglet,
-            children: [
-              // ── 0. Accueil ─────────────────────────────────────────────────
-              if (dossiers == null && _injoignable)
-                _Injoignable(titre: 'Accueil', reessayer: _lireLesDossiers)
-              else if (dossiers == null)
-                const _EnAttenteDeDossier(titre: 'Accueil')
-              else if (dossiers.isEmpty)
-                const _SansDossier(titre: 'Accueil')
-              else
-                EcranTableauDeBord(
-                  key: _tableauDeBord,
+    // ⚠️ 19 octobre 2026 : le retour d'Android fermait l'application depuis n'importe
+    // quel onglet. Il ramène d'abord à l'accueil ; de l'accueil, il quitte.
+    return PopScope(
+      canPop: _onglet == 0,
+      onPopInvokedWithResult: (aQuitte, _) {
+        if (!aQuitte) setState(() => _onglet = 0);
+      },
+      child: Scaffold(
+        // ⚠️ La barre FLOTTE au-dessus du contenu : elle est détachée des bords.
+        // Chaque écran laisse `Marque.espaceSousLaBarre` en bas pour que sa
+        // dernière carte ne finisse pas dessous.
+        extendBody: true,
+        body: Stack(
+          children: [
+            IndexedStack(
+              index: _onglet,
+              children: [
+                // ── 0. Accueil ─────────────────────────────────────────────────
+                if (dossiers == null && _injoignable)
+                  _Injoignable(titre: 'Accueil', reessayer: _lireLesDossiers)
+                else if (dossiers == null)
+                  const _EnAttenteDeDossier(titre: 'Accueil')
+                else if (dossiers.isEmpty)
+                  const _SansDossier(titre: 'Accueil')
+                else
+                  EcranTableauDeBord(
+                    key: _tableauDeBord,
+                    session: widget.session,
+                    tableau: widget.tableau,
+                    dossiers: dossiers,
+                    quandSessionExpire: widget.quandDeconnecte,
+                    // « Déposer une pièce » depuis l'accueil ouvre l'appareil photo.
+                    allerALOnglet: (i) => i == EcranTableauDeBord.ongletDeposer
+                        ? _deposer()
+                        : setState(() => _onglet = i),
+                    ouvrirMesPieces: () => _ouvrirMesPieces(dossiers),
+                    ouvrirPiece: widget.fichiers == null ? null : _ouvrirPiece,
+                    honorairesDus: _honorairesDus,
+                    ouvrirHonoraires: () => _ouvrirLesHonoraires(dossiers),
+                    ouvrirMonEntreprise: () => _ouvrirMonEntreprise(dossiers),
+                    seDeconnecter: () async {
+                      await widget.session.fermerLaSession();
+                      widget.quandDeconnecte();
+                    },
+                  ),
+                // ── 1. Échéances ───────────────────────────────────────────────
+                if (dossiers == null && _injoignable)
+                  _Injoignable(
+                    titre: 'Mes échéances',
+                    reessayer: _lireLesDossiers,
+                  )
+                else if (dossiers == null)
+                  const _EnAttenteDeDossier(titre: 'Mes échéances')
+                else if (dossiers.isEmpty)
+                  const _SansDossier(titre: 'Mes échéances')
+                else
+                  EcranEcheances(
+                    session: widget.session,
+                    dossiers: dossiers,
+                    quandSessionExpire: widget.quandDeconnecte,
+                    priseDeVue: widget.priseDeVue,
+                    espace: widget.espace,
+                  ),
+                // ── 2. Déposer ─────────────────────────────────────────────────
+                // ⚠️ Le dépôt, LUI, se construit tout de suite : la file d'attente
+                // vit sur l'appareil, il n'a besoin d'aucun dossier pour la montrer.
+                // C'est même ce qu'il doit montrer en priorité quand le réseau manque.
+                EcranAccueil(
+                  key: _depot,
                   session: widget.session,
-                  tableau: widget.tableau,
-                  dossiers: dossiers,
-                  quandSessionExpire: widget.quandDeconnecte,
-                  allerALOnglet: (i) => setState(() => _onglet = i),
-                  ouvrirMesPieces: () => _ouvrirMesPieces(dossiers),
-                  ouvrirPiece: widget.fichiers == null ? null : _ouvrirPiece,
-                  honorairesDus: _honorairesDus,
-                  ouvrirHonoraires: () => _ouvrirLesHonoraires(dossiers),
-                  ouvrirMonEntreprise: () => _ouvrirMonEntreprise(dossiers),
-                  seDeconnecter: () async {
-                    await widget.session.fermerLaSession();
-                    widget.quandDeconnecte();
-                  },
-                ),
-              // ── 1. Échéances ───────────────────────────────────────────────
-              if (dossiers == null && _injoignable)
-                _Injoignable(
-                  titre: 'Mes échéances',
-                  reessayer: _lireLesDossiers,
-                )
-              else if (dossiers == null)
-                const _EnAttenteDeDossier(titre: 'Mes échéances')
-              else if (dossiers.isEmpty)
-                const _SansDossier(titre: 'Mes échéances')
-              else
-                EcranEcheances(
-                  session: widget.session,
-                  dossiers: dossiers,
-                  quandSessionExpire: widget.quandDeconnecte,
+                  file: widget.file,
                   priseDeVue: widget.priseDeVue,
-                  espace: widget.espace,
+                  remettre: widget.remettre,
+                  quandDeconnecte: widget.quandDeconnecte,
+                  dossiers: dossiers ?? const [],
+                  // ⚠️ Tant que les dossiers ne sont pas lus, pas de porte : elle
+                  // ouvrirait sur un écran qui ne saurait pas quoi demander.
+                  ouvrirLHistorique: dossiers == null || dossiers.isEmpty
+                      ? null
+                      : () => _ouvrirMesPieces(dossiers),
+                  compteurEnAttente: _enAttente,
                 ),
-              // ── 2. Déposer ─────────────────────────────────────────────────
-              // ⚠️ Le dépôt, LUI, se construit tout de suite : la file d'attente
-              // vit sur l'appareil, il n'a besoin d'aucun dossier pour la montrer.
-              // C'est même ce qu'il doit montrer en priorité quand le réseau manque.
-              EcranAccueil(
-                key: _depot,
-                session: widget.session,
-                file: widget.file,
-                priseDeVue: widget.priseDeVue,
-                remettre: widget.remettre,
-                quandDeconnecte: widget.quandDeconnecte,
-                dossiers: dossiers ?? const [],
-                // ⚠️ Tant que les dossiers ne sont pas lus, pas de porte : elle
-                // ouvrirait sur un écran qui ne saurait pas quoi demander.
-                ouvrirLHistorique: dossiers == null || dossiers.isEmpty
-                    ? null
-                    : () => _ouvrirMesPieces(dossiers),
-                compteurEnAttente: _enAttente,
-              ),
-              // ── 3. Documents ───────────────────────────────────────────────
-              if (dossiers == null && _injoignable)
-                _Injoignable(
-                  titre: 'Mes documents',
-                  reessayer: _lireLesDossiers,
-                )
-              else if (dossiers == null)
-                const _EnAttenteDeDossier(titre: 'Mes documents')
-              else if (dossiers.isEmpty)
-                const _SansDossier(titre: 'Mes documents')
-              else
-                EcranDocuments(
-                  session: widget.session,
-                  dossiers: dossiers,
-                  quandSessionExpire: widget.quandDeconnecte,
-                  // ⚠️ « Documents » est l'onglet où l'on cherche un document,
-                  // quel qu'en soit le sens. Les accusés déposés PAR le cabinet
-                  // y étaient seuls ; les pièces remises AU cabinet vivaient
-                  // sur un écran auquel rien ne menait depuis ici.
-                  ouvrirLHistorique: () => _ouvrirMesPieces(dossiers),
-                  // 18 octobre 2026 : chaque accusé a son reçu PDF, qui s'ouvre ici.
-                  ouvrirLeRecu: (dossier, numero) => _ouvrirDocument(
-                    '/obligations/dossiers/${Uri.encodeComponent(dossier)}'
-                        '/mes-documents/${Uri.encodeComponent(numero)}/recu',
-                    'Reçu de dépôt',
-                  ),
-                ),
-              // ── 4. Plus ────────────────────────────────────────────────────
-              // 18 octobre 2026 : honoraires, DSF, paie, entreprise et pièces
-              // envoyées, à un toucher. « Entreprise » y descend : on la consulte
-              // rarement, et la barre ne tient pas un sixième onglet.
-              if (dossiers == null && _injoignable)
-                _Injoignable(titre: 'Mon espace', reessayer: _lireLesDossiers)
-              else if (dossiers == null)
-                const _EnAttenteDeDossier(titre: 'Mon espace')
-              else if (dossiers.isEmpty)
-                const _SansDossier(titre: 'Mon espace')
-              else
-                EcranPlus(
-                  key: _plus,
-                  espace: widget.espace,
-                  dossier: dossiers.first,
-                  ouvrirHonoraires: () => _ouvrirLesHonoraires(dossiers),
-                  ouvrirMaDsf: () => _ouvrir(
-                    () => EcranMaDsf(
-                      espace: widget.espace,
-                      dossiers: dossiers,
-                      priseDeVue: widget.priseDeVue,
-                      quandSessionExpire: widget.quandDeconnecte,
-                      ouvrirDocument: _ouvrirDocument,
+                // ── 3. Documents ───────────────────────────────────────────────
+                if (dossiers == null && _injoignable)
+                  _Injoignable(
+                    titre: 'Mes documents',
+                    reessayer: _lireLesDossiers,
+                  )
+                else if (dossiers == null)
+                  const _EnAttenteDeDossier(titre: 'Mes documents')
+                else if (dossiers.isEmpty)
+                  const _SansDossier(titre: 'Mes documents')
+                else
+                  EcranDocuments(
+                    session: widget.session,
+                    dossiers: dossiers,
+                    quandSessionExpire: widget.quandDeconnecte,
+                    // ⚠️ « Documents » est l'onglet où l'on cherche un document,
+                    // quel qu'en soit le sens. Les accusés déposés PAR le cabinet
+                    // y étaient seuls ; les pièces remises AU cabinet vivaient
+                    // sur un écran auquel rien ne menait depuis ici.
+                    ouvrirLHistorique: () => _ouvrirMesPieces(dossiers),
+                    // 18 octobre 2026 : chaque accusé a son reçu PDF, qui s'ouvre ici.
+                    ouvrirLeRecu: (dossier, numero) => _ouvrirDocument(
+                      '/obligations/dossiers/${Uri.encodeComponent(dossier)}'
+                          '/mes-documents/${Uri.encodeComponent(numero)}/recu',
+                      'Reçu de dépôt',
                     ),
                   ),
-                  ouvrirMaPaie: () => _ouvrir(
-                    () => EcranMaPaie(
-                      espace: widget.espace,
-                      dossiers: dossiers,
-                      quandSessionExpire: widget.quandDeconnecte,
+                // ── 4. Plus ────────────────────────────────────────────────────
+                // 18 octobre 2026 : honoraires, DSF, paie, entreprise et pièces
+                // envoyées, à un toucher. « Entreprise » y descend : on la consulte
+                // rarement, et la barre ne tient pas un sixième onglet.
+                if (dossiers == null && _injoignable)
+                  _Injoignable(titre: 'Mon espace', reessayer: _lireLesDossiers)
+                else if (dossiers == null)
+                  const _EnAttenteDeDossier(titre: 'Mon espace')
+                else if (dossiers.isEmpty)
+                  const _SansDossier(titre: 'Mon espace')
+                else
+                  EcranPlus(
+                    key: _plus,
+                    espace: widget.espace,
+                    dossier: dossiers.first,
+                    ouvrirHonoraires: () => _ouvrirLesHonoraires(dossiers),
+                    ouvrirMaDsf: () => _ouvrir(
+                      () => EcranMaDsf(
+                        espace: widget.espace,
+                        dossiers: dossiers,
+                        priseDeVue: widget.priseDeVue,
+                        quandSessionExpire: widget.quandDeconnecte,
+                        ouvrirDocument: _ouvrirDocument,
+                      ),
                     ),
+                    ouvrirMaPaie: () => _ouvrir(
+                      () => EcranMaPaie(
+                        espace: widget.espace,
+                        dossiers: dossiers,
+                        quandSessionExpire: widget.quandDeconnecte,
+                      ),
+                    ),
+                    ouvrirMonEntreprise: () => _ouvrirMonEntreprise(dossiers),
+                    ouvrirMesPieces: () => _ouvrirMesPieces(dossiers),
+                    seDeconnecter: () async {
+                      await widget.session.fermerLaSession();
+                      widget.quandDeconnecte();
+                    },
                   ),
-                  ouvrirMonEntreprise: () => _ouvrirMonEntreprise(dossiers),
-                  ouvrirMesPieces: () => _ouvrirMesPieces(dossiers),
-                  seDeconnecter: () async {
-                    await widget.session.fermerLaSession();
-                    widget.quandDeconnecte();
-                  },
-                ),
-            ],
-          ),
-          const _VoileSousLaListe(),
-        ],
-      ),
-      // ⚠️ LA BARRE DU BAS EST POSÉE SUR LE CONTENU, et doit le paraître :
-      // une ombre remontante très basse suffit à la faire exister.
-      //
-      // ⚠️ CINQ DESTINATIONS, DANS L'ORDRE DES QUESTIONS DE L'ADHÉRENT : où en
-      // suis-je (Accueil), qu'est-ce que je dois (Échéances), j'envoie une
-      // pièce (Déposer, au centre, sous le pouce), qu'est-ce que le cabinet a
-      // fait pour moi (Documents), qui suis-je pour le cabinet (Entreprise).
-      // « Mes pièces » n'a plus d'onglet : c'est un historique, qu'on ouvre
-      // depuis l'accueil, pas une question qu'on se pose chaque jour.
-      bottomNavigationBar: _BarreDuBas(
-        onglet: _onglet,
-        enAttente: _enAttente,
-        surChoix: (i) {
-          if (i == _onglet) return;
-          // ⚠️ UN RETOUR AU DOIGT, DISCRET, À CHAQUE CHANGEMENT D'ONGLET.
-          //
-          // Sur une dalle bon marché, l'affichage met parfois deux dixièmes de
-          // seconde à basculer ; sans retour, l'adhérent croit avoir raté sa
-          // cible et appuie une seconde fois. `selectionClick` est le retour le
-          // plus léger du système : il dit « c'est pris », sans secouer.
-          HapticFeedback.selectionClick();
-          setState(() => _onglet = i);
-          if (i == 4) _plus.currentState?.relire();
-          if (i == 0) {
-            _tableauDeBord.currentState?.relire();
-            _lireLesHonoraires();
-          }
-        },
-        surDeposer: () {
-          // Le dépôt est le geste principal : un retour un peu plus franc.
-          HapticFeedback.mediumImpact();
-          _depot.currentState?.photographier();
-        },
+              ],
+            ),
+            const _VoileSousLaListe(),
+          ],
+        ),
+        // ⚠️ LA BARRE DU BAS EST POSÉE SUR LE CONTENU, et doit le paraître :
+        // une ombre remontante très basse suffit à la faire exister.
+        //
+        // ⚠️ CINQ DESTINATIONS, DANS L'ORDRE DES QUESTIONS DE L'ADHÉRENT : où en
+        // suis-je (Accueil), qu'est-ce que je dois (Échéances), j'envoie une
+        // pièce (Déposer, au centre, sous le pouce), qu'est-ce que le cabinet a
+        // fait pour moi (Documents), qui suis-je pour le cabinet (Entreprise).
+        // « Mes pièces » n'a plus d'onglet : c'est un historique, qu'on ouvre
+        // depuis l'accueil, pas une question qu'on se pose chaque jour.
+        bottomNavigationBar: _BarreDuBas(
+          onglet: _onglet,
+          enAttente: _enAttente,
+          surChoix: (i) {
+            if (i == _onglet) return;
+            // ⚠️ UN RETOUR AU DOIGT, DISCRET, À CHAQUE CHANGEMENT D'ONGLET.
+            //
+            // Sur une dalle bon marché, l'affichage met parfois deux dixièmes de
+            // seconde à basculer ; sans retour, l'adhérent croit avoir raté sa
+            // cible et appuie une seconde fois. `selectionClick` est le retour le
+            // plus léger du système : il dit « c'est pris », sans secouer.
+            HapticFeedback.selectionClick();
+            setState(() => _onglet = i);
+            if (i == 4) _plus.currentState?.relire();
+            if (i == 0) {
+              _tableauDeBord.currentState?.relire();
+              _lireLesHonoraires();
+            }
+          },
+          surDeposer: _deposer,
+        ),
       ),
     );
   }
@@ -705,9 +723,10 @@ class _BarreDuBas extends StatelessWidget {
                 _BoutonDeDepot(
                   choisi: onglet == _depot,
                   enAttente: enAttente,
-                  surAppui: onglet == _depot
-                      ? surDeposer
-                      : () => surChoix(_depot),
+                  // 19 octobre 2026 : un seul geste, d'où qu'on vienne. Le bouton ne
+                  // faisait que changer d'onglet ; il fallait appuyer une seconde fois
+                  // pour ouvrir l'appareil photo.
+                  surAppui: surDeposer,
                 ),
                 _Onglet(
                   cle: 'onglet-documents',
