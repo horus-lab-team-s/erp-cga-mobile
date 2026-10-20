@@ -2,6 +2,7 @@ import 'dart:io';
 
 import '../domaine/depot.dart';
 import '../domaine/file_d_attente.dart';
+import '../domaine/prise_de_vue.dart';
 import 'client_api.dart';
 
 /// Remettre un justificatif au serveur, en deux temps.
@@ -58,6 +59,8 @@ class Remise {
         entreprise: depot.dossier,
         empreinte: depose.empreinte!,
         prisLe: depot.prisLe,
+        connaissance: depot.connaissance,
+        extension: extensionDeLaPiece(depot.cheminDuFichier),
       );
       return creee.reponse;
     } on SocketException {

@@ -3,8 +3,11 @@ import 'package:flutter/material.dart';
 import '../marque.dart';
 import 'package:flutter/services.dart';
 
+import '../composants/actions.dart';
 import '../composants/carte.dart';
 import '../composants/champ_de_recherche.dart';
+import '../composants/etat.dart';
+import '../domaine/fraicheur.dart';
 import '../composants/porte_de_l_historique.dart';
 import '../domaine/recherche.dart';
 import '../domaine/document_recu.dart';
@@ -29,13 +32,20 @@ class EcranDocuments extends StatefulWidget {
   const EcranDocuments({
     super.key,
     required this.session,
-    required this.dossiers,
+    required this.dossier,
     required this.quandSessionExpire,
     this.ouvrirLHistorique,
+    this.ouvrirLeRecu,
   });
 
+  /// 18 octobre 2026 : ouvre le reçu de dépôt PDF d'un accusé, par son numéro.
+  /// `null` : pas de visionneuse, la carte reste un relevé.
+  final void Function(String dossier, String numero)? ouvrirLeRecu;
+
   final ServiceDeSession session;
-  final List<String> dossiers;
+
+  /// Le dossier choisi dans l'en-tête de l'accueil (20 octobre 2026).
+  final String dossier;
   final VoidCallback quandSessionExpire;
 
   /// Ouvre l'historique des pièces REMISES par l'adhérent.
@@ -64,7 +74,11 @@ class _EtatDesDocuments extends State<EcranDocuments>
 
   Documents? _documents;
   bool _lectureEnCours = true;
-  late String _dossier = widget.dossiers.first;
+  String get _dossier => widget.dossier;
+
+  /// ⚠️ 20 octobre 2026 : au retour au premier plan, on ne relit que si la
+  /// dernière lecture a plus de cinq minutes. Voir `Fraicheur`.
+  final _fraicheur = Fraicheur();
 
   @override
   void initState() {
@@ -80,8 +94,17 @@ class _EtatDesDocuments extends State<EcranDocuments>
   }
 
   @override
+  void didUpdateWidget(EcranDocuments ancien) {
+    super.didUpdateWidget(ancien);
+    if (ancien.dossier != widget.dossier) {
+      setState(() => _documents = null);
+      _relire();
+    }
+  }
+
+  @override
   void didChangeAppLifecycleState(AppLifecycleState etat) {
-    if (etat == AppLifecycleState.resumed) _relire();
+    if (etat == AppLifecycleState.resumed && _fraicheur.perimee) _relire();
   }
 
   Future<void> _relire() async {
@@ -93,60 +116,39 @@ class _EtatDesDocuments extends State<EcranDocuments>
       _lectureEnCours = false;
     });
     if (lu.sessionAExpire) widget.quandSessionExpire();
+    if (lu.serveurJoignable && lu.copieDu == null) _fraicheur.marquer();
   }
 
   @override
   Widget build(BuildContext context) {
     final d = _documents;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Mes documents'),
-        actions: [
-          if (widget.dossiers.length > 1)
-            PopupMenuButton<String>(
-              key: const Key('choix-dossier-documents'),
-              initialValue: _dossier,
-              tooltip: 'Changer de dossier',
-              icon: const Icon(Icons.folder_outlined),
-              onSelected: (x) {
-                setState(() => _dossier = x);
-                _relire();
-              },
-              itemBuilder: (_) => [
-                for (final x in widget.dossiers)
-                  PopupMenuItem(value: x, child: Text(x)),
-              ],
-            ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Mes documents')),
       body: RefreshIndicator(
         onRefresh: _relire,
         child: switch ((_lectureEnCours, d)) {
-          (true, null) => const Center(
+          (true, null) => const Squelette(
             key: Key('documents-en-attente'),
-            child: CircularProgressIndicator(),
+            chapeau: false,
+            cartes: 4,
           ),
-          (_, null) => const _RienDuTout(
-            titre: 'Documents indisponibles',
-            detail: 'Le serveur n\'a pas répondu.',
-            icone: Icons.cloud_off_outlined,
-          ),
-          (_, final Documents x) when x.sessionAExpire => const _RienDuTout(
+          (_, null) => EtatDePanne(serveurEnPanne: true, reessayer: _relire),
+          (_, final Documents x) when x.sessionAExpire => const EtatVide(
             titre: 'Session expirée',
             detail: 'Reconnectez-vous pour consulter vos accusés de dépôt.',
             icone: Icons.lock_outline,
           ),
-          (_, final Documents x) when !x.serveurJoignable => const _RienDuTout(
+          (_, final Documents x) when !x.serveurJoignable => EtatDePanne(
             // ⚠️ Jamais « aucun document » : dire à un adhérent que le cabinet
             // n'a rien déposé pour lui, parce que le réseau manquait, est
             // exactement le message qui fait appeler en urgence.
-            titre: 'Pas de réseau',
-            detail:
+            serveurEnPanne: x.serveurEnPanne,
+            horsLigne:
                 'Vos accusés de dépôt se lisent sur le serveur. Ils '
                 'reparaîtront dès que la connexion revient.',
-            icone: Icons.wifi_off_outlined,
+            reessayer: _relire,
           ),
-          (_, final Documents x) when x.documents.isEmpty => const _RienDuTout(
+          (_, final Documents x) when x.documents.isEmpty => const EtatVide(
             titre: 'Aucun accusé de dépôt',
             detail:
                 'Le cabinet n\'a encore consigné aucun dépôt à votre nom. Les '
@@ -155,7 +157,12 @@ class _EtatDesDocuments extends State<EcranDocuments>
           ),
           (_, final Documents x) => _Liste(
             documents: x.documents,
+            copieDu: x.copieDu,
+            serveurEnPanne: x.serveurEnPanne,
             ouvrirLHistorique: widget.ouvrirLHistorique,
+            ouvrirLeRecu: widget.ouvrirLeRecu == null
+                ? null
+                : (numero) => widget.ouvrirLeRecu!(_dossier, numero),
             recherche: _recherche,
             surRecherche: (v) => setState(() => _recherche = v),
           ),
@@ -171,8 +178,15 @@ class _Liste extends StatelessWidget {
     required this.recherche,
     required this.surRecherche,
     this.ouvrirLHistorique,
+    this.ouvrirLeRecu,
+    this.copieDu,
+    this.serveurEnPanne = false,
   });
 
+  /// Non nul : la liste est la dernière lecture gardée, de cet instant-là.
+  final DateTime? copieDu;
+  final bool serveurEnPanne;
+  final void Function(String numero)? ouvrirLeRecu;
   final List<DocumentRecu> documents;
   final VoidCallback? ouvrirLHistorique;
   final String recherche;
@@ -214,6 +228,10 @@ class _Liste extends StatelessWidget {
         Marque.espaceSousLaBarreDe(context),
       ),
       children: [
+        if (copieDu != null) ...[
+          BandeauHorsLigne(copieDu: copieDu!, serveurEnPanne: serveurEnPanne),
+          const SizedBox(height: Marque.espace3),
+        ],
         Chapeau(
           titre: recherche.isEmpty
               ? '${documents.length} accusé${documents.length > 1 ? "s" : ""} '
@@ -275,7 +293,12 @@ class _Liste extends StatelessWidget {
           for (final d in parAnnee[annee]!)
             Padding(
               padding: const EdgeInsets.only(bottom: 10),
-              child: _Carte(document: d),
+              child: _Carte(
+                document: d,
+                ouvrir: ouvrirLeRecu == null
+                    ? null
+                    : () => ouvrirLeRecu!(d.numero),
+              ),
             ),
         ],
       ],
@@ -284,117 +307,232 @@ class _Liste extends StatelessWidget {
 }
 
 class _Carte extends StatelessWidget {
-  const _Carte({required this.document});
+  const _Carte({required this.document, this.ouvrir});
 
   final DocumentRecu document;
+
+  /// Ouvre le reçu de dépôt PDF. `null` : la carte se lit, sans s'ouvrir.
+  final VoidCallback? ouvrir;
 
   @override
   Widget build(BuildContext context) {
     final d = document;
     final couleurs = Theme.of(context).colorScheme;
+    final texte = Theme.of(context).textTheme;
     return Carte(
       relief: ReliefDeCarte.liste,
+      surAppui: ouvrir,
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ⚠️ 18 octobre 2026 : « JE NE VOIS QUE LES RÉFÉRENCES ». La miniature
+          // reprend la page du reçu (en-tête du cabinet, titre, numéro, cachet) :
+          // l'adhérent reconnaît un document avant de l'ouvrir. Elle est dessinée,
+          // et non le PDF réduit : cent trente PDF à télécharger pour une liste,
+          // sur un réseau qu'on sait lent, rendraient l'onglet inutilisable.
+          _Miniature(document: d),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  d.titre,
+                  style: texte.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${d.periode} · ${d.guichet} · déposé le ${_jour(d.deposeLe)}',
+                  style: texte.bodySmall?.copyWith(
+                    color: couleurs.onSurfaceVariant,
+                  ),
+                ),
+                if (d.montantConstate != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    _montant(d.montantConstate!),
+                    style: texte.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: couleurs.primary,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 6),
+                // ⚠️ LE NUMÉRO, ET LE GESTE DE LE COPIER : c'est la seule
+                // référence que l'administration reconnaîtra. Un appui le met
+                // dans le presse-papiers ; le recopier à la main invite la faute.
+                // 19 octobre 2026 : une cible de 48 points, annoncée au lecteur d'écran.
+                Semantics(
+                  button: true,
+                  label: 'Copier le numéro ${d.numero}',
+                  excludeSemantics: true,
+                  child: InkWell(
+                    key: Key('copier-${d.numero}'),
+                    onTap: () async {
+                      await Clipboard.setData(ClipboardData(text: d.numero));
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Numéro ${d.numero} copié')),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(Marque.rayonBloc),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              d.numero,
+                              overflow: TextOverflow.ellipsis,
+                              style: texte.bodySmall?.copyWith(
+                                color: couleurs.onSurface,
+                                fontWeight: FontWeight.w600,
+                                fontFeatures: const [
+                                  FontFeature.tabularFigures(),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Icon(
+                            Icons.copy_rounded,
+                            size: 15,
+                            color: couleurs.onSurfaceVariant,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                // ⚠️ La nuance que l'adhérent doit connaître AVANT de s'appuyer sur
+                // cet accusé : sans justificatif archivé, il repose sur le numéro
+                // saisi par le cabinet.
+                if (!d.verifiable)
+                  Text(
+                    'Aucun justificatif n\'est archivé avec cet accusé.',
+                    style: texte.bodySmall?.copyWith(
+                      color: couleurs.onSurfaceVariant,
+                      fontSize: 12,
+                    ),
+                  ),
+                if (ouvrir != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.picture_as_pdf_outlined,
+                          size: 16,
+                          color: couleurs.primary,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Voir le reçu',
+                          style: texte.labelLarge?.copyWith(
+                            color: couleurs.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// La page du reçu, en miniature : ce que l'adhérent ouvrira, reconnaissable d'un regard.
+class _Miniature extends StatelessWidget {
+  const _Miniature({required this.document});
+
+  final DocumentRecu document;
+
+  @override
+  Widget build(BuildContext context) {
+    final couleurs = Theme.of(context).colorScheme;
+    Widget trait(double largeur, {double epaisseur = 3, Color? couleur}) =>
+        Container(
+          width: largeur,
+          height: epaisseur,
+          margin: const EdgeInsets.only(bottom: 3),
+          decoration: BoxDecoration(
+            color: couleur ?? couleurs.outlineVariant,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        );
+    return Container(
+      width: 68,
+      height: 98,
+      padding: const EdgeInsets.fromLTRB(7, 7, 7, 6),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: couleurs.outlineVariant),
+        boxShadow: Marque.ombreListe,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Text(
-                  d.titre,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: couleurs.onSurface,
-                  ),
+              Container(
+                width: 9,
+                height: 9,
+                decoration: BoxDecoration(
+                  color: Marque.indigo900,
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              if (d.montantConstate != null)
-                Text(
-                  _montant(d.montantConstate!),
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: couleurs.onSurface,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
-                ),
+              const SizedBox(width: 3),
+              Expanded(
+                child: trait(30, epaisseur: 2.5, couleur: Marque.indigo700),
+              ),
             ],
           ),
+          const SizedBox(height: 5),
+          trait(38, epaisseur: 4, couleur: Marque.indigo900),
+          trait(28),
           const SizedBox(height: 3),
-          Text(
-            '${d.periode} · ${d.guichet} · déposé le ${_jour(d.deposeLe)}',
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: couleurs.onSurfaceVariant),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 3),
+            decoration: BoxDecoration(
+              color: Marque.indigo100,
+              borderRadius: BorderRadius.circular(2),
+            ),
+            child: trait(34, epaisseur: 3, couleur: Marque.indigo700),
           ),
-          const SizedBox(height: 12),
-
-          // ⚠️ LE NUMÉRO, ET LE GESTE DE LE COPIER.
-          //
-          // C'est la seule référence que l'administration reconnaîtra. Le lire à
-          // voix haute au téléphone ou le recopier à la main invite la faute ;
-          // un appui le met dans le presse-papiers.
-          InkWell(
-            key: Key('copier-${d.numero}'),
-            onTap: () async {
-              await Clipboard.setData(ClipboardData(text: d.numero));
-              if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Numéro ${d.numero} copié')),
-              );
-            },
-            borderRadius: BorderRadius.circular(Marque.rayonBloc),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      d.numero,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: couleurs.onSurface,
-                        fontWeight: FontWeight.w600,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
-                    ),
-                  ),
-                  Icon(
-                    Icons.copy_rounded,
-                    size: 17,
-                    color: couleurs.onSurfaceVariant,
-                  ),
-                ],
+          const SizedBox(height: 4),
+          trait(46),
+          trait(40),
+          trait(44),
+          const Spacer(),
+          Align(
+            alignment: Alignment.bottomRight,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 1),
+              decoration: BoxDecoration(
+                border: Border.all(color: Marque.reussite, width: 0.8),
+                borderRadius: BorderRadius.circular(2),
+              ),
+              child: const Text(
+                'DÉPOSÉE',
+                style: TextStyle(
+                  fontSize: 6,
+                  fontWeight: FontWeight.w800,
+                  color: Marque.reussite,
+                  letterSpacing: 0.3,
+                ),
               ),
             ),
           ),
-
-          if (!d.verifiable) ...[
-            const SizedBox(height: 8),
-            // ⚠️ La nuance que l'adhérent doit connaître AVANT de s'appuyer sur
-            // cet accusé. Sans justificatif archivé, il repose sur la parole de
-            // celui qui a saisi le numéro.
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(
-                  Icons.info_outline,
-                  size: 15,
-                  color: couleurs.onSurfaceVariant,
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    'Aucun justificatif n\'est archivé avec cet accusé : il '
-                    'repose sur le numéro saisi par le cabinet.',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: couleurs.onSurfaceVariant,
-                      height: 1.4,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
         ],
       ),
     );
@@ -427,45 +565,4 @@ String _montant(double v) {
     tranches.insert(0, entier.substring(fin - 3 < 0 ? 0 : fin - 3, fin));
   }
   return '${tranches.join(' ')} F';
-}
-
-class _RienDuTout extends StatelessWidget {
-  const _RienDuTout({
-    required this.titre,
-    required this.detail,
-    required this.icone,
-  });
-
-  final String titre;
-  final String detail;
-  final IconData icone;
-
-  @override
-  Widget build(BuildContext context) {
-    final couleurs = Theme.of(context).colorScheme;
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(32, 90, 32, 32),
-      children: [
-        Icon(icone, size: 44, color: couleurs.onSurfaceVariant),
-        const SizedBox(height: 18),
-        Text(
-          titre,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: couleurs.onSurface,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          detail,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: couleurs.onSurfaceVariant,
-            height: 1.5,
-          ),
-        ),
-      ],
-    );
-  }
 }

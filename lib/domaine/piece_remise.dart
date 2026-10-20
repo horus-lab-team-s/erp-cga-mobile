@@ -66,10 +66,14 @@ enum EtatChezLeCabinet {
   /// « rapprochée d'une opération » le lui dit. Le dossier de design l'impose à
   /// sa section sur les libellés : on écrit ce que la chose fait, pas comment
   /// elle s'appelle dans la base.
+  ///
+  /// ⚠️ 20 octobre 2026 : « rapprochée d'une opération » était encore un mot de
+  /// comptable. Ce que l'adhérent comprend : la pièce est rattachée à un paiement
+  /// de son relevé.
   String get libelle => switch (this) {
     EtatChezLeCabinet.recue => 'Reçue par le cabinet',
     EtatChezLeCabinet.lue => 'Lue par le cabinet',
-    EtatChezLeCabinet.rapprochee => 'Rapprochée d\'une opération',
+    EtatChezLeCabinet.rapprochee => 'Rattachée à un paiement',
     EtatChezLeCabinet.comptabilisee => 'Comptabilisée',
     EtatChezLeCabinet.archivee => 'Archivée',
   };
@@ -193,6 +197,7 @@ class Historique {
     this.pieces = const [],
     this.serveurJoignable = true,
     this.sessionAExpire = false,
+    this.serveurEnPanne = false,
   });
 
   /// Les pièces du dossier, de la plus récente à la plus ancienne.
@@ -204,6 +209,10 @@ class Historique {
 
   /// Vrai quand il faut se reconnecter pour lire.
   final bool sessionAExpire;
+
+  /// 20 octobre 2026 : le téléphone a du réseau, mais le serveur n'a pas répondu
+  /// comme il faut. Faux avec `serveurJoignable` faux : c'est le réseau qui manque.
+  final bool serveurEnPanne;
 
   /// Combien de pièces le cabinet a déjà prises en compte.
   int get prisesEnCompte => pieces.where((p) => p.etat.priseEnCompte).length;

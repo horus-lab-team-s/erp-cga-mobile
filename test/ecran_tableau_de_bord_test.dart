@@ -92,7 +92,7 @@ Future<_Traces> _poser(
       home: EcranTableauDeBord(
         session: session ?? _Session(),
         tableau: tableau ?? TableauFeint(),
-        dossiers: const [_dossier],
+        dossier: _dossier,
         quandSessionExpire: () => t.sessionExpiree++,
         allerALOnglet: t.onglets.add,
         ouvrirMesPieces: () => t.mesPieces++,
@@ -185,6 +185,26 @@ void main() {
       expect(find.textContaining('Réponse transmise'), findsOneWidget);
     });
 
+    testWidgets('une demande répondue sort du compte des pièces à envoyer', (
+      testeur,
+    ) async {
+      // ⚠️ 19 octobre 2026 : la tuile comptait aussi les demandes répondues, et
+      // l'accueil disait 3 sous une phrase qui disait 2.
+      await _poser(testeur);
+      Finder nombre(String texte) => find.descendant(
+        of: find.byKey(const Key('chiffre-attendues')),
+        matching: find.text(texte),
+      );
+      expect(nombre('2'), findsOneWidget);
+
+      final bouton = find.byKey(const Key('PLUS_TARD-DP-2026-010'));
+      await _amener(testeur, bouton);
+      await testeur.tap(bouton);
+      await testeur.pumpAndSettle();
+
+      expect(nombre('1'), findsOneWidget);
+    });
+
     testWidgets('« déjà reçue » n\'est pas présenté comme un échec', (
       testeur,
     ) async {
@@ -198,8 +218,55 @@ void main() {
       await _amener(testeur, bouton);
       await testeur.tap(bouton);
       await testeur.pumpAndSettle();
+      // « Je n'ai pas ce document » laisse cinq secondes pour se dédire.
+      await testeur.pump(const Duration(seconds: 6));
+      await testeur.pumpAndSettle();
 
       expect(find.textContaining('déjà votre réponse'), findsOneWidget);
+      expect(find.byKey(const Key('repondu-DP-2026-002')), findsOneWidget);
+    });
+
+    testWidgets(
+      '« Je n\'ai pas ce document » se rattrape pendant cinq secondes',
+      (testeur) async {
+        // ⚠️ 20 octobre 2026 : la réponse dit au cabinet de cesser d'attendre la
+        // pièce, et le bouton est à un pouce de « Déposer la pièce ».
+        final tableau = TableauFeint();
+        await _poser(testeur, tableau: tableau);
+        final bouton = find.byKey(const Key('INTROUVABLE-DP-2026-002'));
+        await _amener(testeur, bouton);
+        await testeur.tap(bouton);
+        await testeur.pumpAndSettle();
+
+        expect(
+          find.text('« Je n\'ai pas ce document » part au cabinet.'),
+          findsOneWidget,
+        );
+        expect(tableau.reponses, isEmpty, reason: 'Rien ne part avant 5 s.');
+        await testeur.tap(find.text('Annuler'));
+        await testeur.pumpAndSettle();
+        await testeur.pump(const Duration(seconds: 6));
+        await testeur.pumpAndSettle();
+
+        expect(tableau.reponses, isEmpty);
+        expect(find.byKey(const Key('repondu-DP-2026-002')), findsNothing);
+        expect(bouton, findsOneWidget, reason: 'La carte rend ses boutons.');
+      },
+    );
+
+    testWidgets('… et part seule une fois les cinq secondes passées', (
+      testeur,
+    ) async {
+      final tableau = TableauFeint();
+      await _poser(testeur, tableau: tableau);
+      final bouton = find.byKey(const Key('INTROUVABLE-DP-2026-002'));
+      await _amener(testeur, bouton);
+      await testeur.tap(bouton);
+      await testeur.pumpAndSettle();
+      await testeur.pump(const Duration(seconds: 6));
+      await testeur.pumpAndSettle();
+
+      expect(tableau.reponses, [('DP-2026-002', NatureDeReponse.introuvable)]);
       expect(find.byKey(const Key('repondu-DP-2026-002')), findsOneWidget);
     });
 
@@ -326,6 +393,11 @@ void main() {
     // l'appareil photo : constaté en parcours, personne ne l'y cherche.
     final t = await _poser(testeur);
     await testeur.tap(find.byKey(const Key('accueil-sortir')));
+    await testeur.pumpAndSettle();
+    // 19 octobre 2026 : un seul appui ne suffit plus, on confirme.
+    expect(t.deconnexions, 0);
+    await testeur.tap(find.byKey(const Key('confirmer-deconnexion')));
+    await testeur.pumpAndSettle();
     expect(t.deconnexions, 1);
   });
 

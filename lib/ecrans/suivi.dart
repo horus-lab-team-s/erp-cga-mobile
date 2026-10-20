@@ -307,7 +307,7 @@ class _Etape extends StatelessWidget {
     final couleurs = Theme.of(context).colorScheme;
     final texte = Theme.of(context).textTheme;
     final teinte = faite
-        ? Marque.reussite
+        ? Marque.reussiteDe(context)
         : courante
         ? couleurs.primary
         : couleurs.outline;
@@ -333,7 +333,9 @@ class _Etape extends StatelessWidget {
                     child: Container(
                       width: 2,
                       margin: const EdgeInsets.symmetric(vertical: 2),
-                      color: faite ? Marque.reussite : couleurs.outlineVariant,
+                      color: faite
+                          ? Marque.reussiteDe(context)
+                          : couleurs.outlineVariant,
                     ),
                   ),
               ],
@@ -398,7 +400,7 @@ class _LigneDeMensualite extends StatelessWidget {
                 Etiquette(
                   m.etat.libelle,
                   couleur: switch (m.etat) {
-                    EtatDeMensualite.reglee => Marque.reussite,
+                    EtatDeMensualite.reglee => Marque.reussiteDe(context),
                     EtatDeMensualite.impayee ||
                     EtatDeMensualite.enDefaut => couleurs.error,
                     _ => null,

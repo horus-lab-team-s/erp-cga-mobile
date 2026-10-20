@@ -52,7 +52,8 @@ class PorteDeLHistorique extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  "Tout ce que j'ai envoyé",
+                  // 20 octobre 2026 : le même nom partout pour le même écran.
+                  'Mes pièces envoyées',
                   style: texte.titleSmall?.copyWith(
                     fontWeight: FontWeight.w600,
                     color: couleurs.onSurface,
@@ -63,8 +64,8 @@ class PorteDeLHistorique extends StatelessWidget {
                   // ⚠️ On annonce la PIÈCE JOINTE, parce que c'est ce que
                   // l'adhérent cherche : non pas une ligne de journal, mais le
                   // document lui-même, celui qu'il retrouvera au contrôle.
-                  'Vos pièces remises, leur avancement, et le document de '
-                  'chacune.',
+                  'Ce que vous avez remis au cabinet, son avancement, et le '
+                  'document de chacune.',
                   style: texte.bodySmall?.copyWith(
                     color: couleurs.onSurfaceVariant,
                   ),

@@ -14,6 +14,10 @@ import 'package:cga_mobile/marque.dart';
 import 'package:cga_mobile/ports/service_de_session.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:cga_mobile/composants/actions.dart';
+import 'package:cga_mobile/domaine/fonds_confies.dart';
+
+import 'soutien/espace_feint.dart';
 
 /// ─────────────────────────────────────────────────────────────────────────────
 /// CE QUE CES CAS TIENNENT
@@ -149,6 +153,7 @@ void main() {
     WidgetTester testeur, {
     Echeancier echeancier = const Echeancier(),
     VoidCallback? quandSessionExpire,
+    EspaceFeint? espace,
   }) async {
     final s = SessionFeinte(echeancier: echeancier);
     await testeur.pumpWidget(
@@ -156,9 +161,10 @@ void main() {
         theme: themeClair(),
         home: EcranEcheances(
           session: s,
-          dossiers: const ['M081234567890P'],
+          dossier: 'M081234567890P',
           quandSessionExpire: quandSessionExpire ?? () {},
           priseDeVue: prise,
+          espace: espace,
         ),
       ),
     );
@@ -196,6 +202,33 @@ void main() {
       expect(find.text('Le cabinet vérifie votre preuve'), findsOneWidget);
       expect(find.textContaining('Réglé'), findsNothing);
       expect(find.textContaining('réglé'), findsNothing);
+    });
+  });
+
+  group('Payée, ou fonds reçus (18 octobre 2026)', () {
+    test('le téléphone lit les deux états du serveur', () {
+      // ⚠️ Lus « À venir », ils faisaient glisser une CNPS tout juste réglée
+      // par mobile money parmi les échéances futures.
+      expect(
+        echeance(etat: 'FONDS_RECUS', jours: 0).etat,
+        EtatPourLAdherent.fondsRecus,
+      );
+      expect(echeance(etat: 'PAYEE', jours: 0).etat, EtatPourLAdherent.payee);
+    });
+
+    testWidgets('des fonds reçus le disent, sans rien demander', (
+      testeur,
+    ) async {
+      await poser(
+        testeur,
+        echeancier: Echeancier(
+          echeances: [echeance(etat: 'FONDS_RECUS', jours: 0)],
+        ),
+      );
+      await testeur.pumpAndSettle();
+
+      expect(find.text('Fonds reçus par le cabinet'), findsOneWidget);
+      expect(find.text('À venir'), findsNothing);
     });
   });
 
@@ -356,6 +389,7 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 120));
       });
       await testeur.pumpAndSettle();
+      await envoyerLaQuittanceRevue(testeur);
 
       expect(appareil.prises, 1);
       expect(session.preuves, const ['CNPS']);
@@ -409,6 +443,7 @@ void main() {
           await Future<void>.delayed(const Duration(milliseconds: 120));
         });
         await testeur.pumpAndSettle();
+        await envoyerLaQuittanceRevue(testeur);
 
         expect(find.textContaining('est arrivée au cabinet'), findsOneWidget);
         expect(find.textContaining('Inutile de la reprendre'), findsOneWidget);
@@ -430,10 +465,153 @@ void main() {
     expect(session.demandes.length, 1);
 
     session.echeancier = Echeancier(echeances: [echeance(jours: 1)]);
+    // ⚠️ 20 octobre 2026 : pas dans les cinq minutes qui suivent une lecture
+    // (voir `Fraicheur`). Aucune échéance ne se franchit dans l'intervalle.
+    testeur.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await testeur.pumpAndSettle();
+    expect(session.demandes.length, 1);
+
+    await testeur.pump(const Duration(minutes: 6));
     testeur.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await testeur.pumpAndSettle();
 
     expect(session.demandes.length, 2);
     expect(find.text('1 période en retard'), findsOneWidget);
   });
+
+  // ── 18 octobre 2026 : toutes les façons de régler ─────────────────────────
+  FondsConfies sousMandat({String etat = 'A_REGLER'}) => FondsConfies.depuis({
+    'obligations_mandatees': ['CNPS'],
+    'appels': [
+      {
+        'identifiant': 'AF-M081234567890P-CNPS-20250101',
+        'code_obligation': 'CNPS',
+        'libelle': 'Cotisations sociales CNPS',
+        'periode_debut': '2025-01-01',
+        'montant': '110618',
+        'etat': etat,
+      },
+    ],
+  });
+
+  testWidgets(
+    'Sous mandat, l\'échéance se règle par mobile money, sans quittance',
+    (testeur) async {
+      final espace = EspaceFeint(fonds: sousMandat());
+      await poser(
+        testeur,
+        echeancier: Echeancier(echeances: [echeance()]),
+        espace: espace,
+      );
+      await testeur.pumpAndSettle();
+
+      expect(find.text(montantFcfa(110618)), findsOneWidget);
+      expect(find.textContaining('rien à photographier'), findsOneWidget);
+      await testeur.tap(find.byKey(const Key('regler-CNPS')));
+      await testeur.pumpAndSettle();
+      await testeur.enterText(
+        find.byKey(const Key('numero-mobile-money')),
+        '677123456',
+      );
+      await testeur.tap(find.byKey(const Key('confirmer-le-paiement')));
+      await testeur.pumpAndSettle();
+
+      expect(espace.fondsConfies, [
+        'AF-M081234567890P-CNPS-20250101:677123456',
+      ]);
+      expect(find.text('Validez sur votre téléphone'), findsOneWidget);
+      expect(appareil.prises, 0, reason: 'aucune photo n\'a été demandée');
+    },
+  );
+
+  testWidgets(
+    'Après la demande, la carte attend la validation, puis dit les fonds reçus',
+    (testeur) async {
+      // ⚠️ 20 octobre 2026 : la carte gardait son bouton « Régler » après la
+      // demande, et l'adhérent qui venait de composer son code payait deux fois.
+      final espace = EspaceFeint(fonds: sousMandat());
+      await poser(
+        testeur,
+        echeancier: Echeancier(echeances: [echeance()]),
+        espace: espace,
+      );
+      await testeur.pumpAndSettle();
+      await testeur.tap(find.byKey(const Key('regler-CNPS')));
+      await testeur.pumpAndSettle();
+      await testeur.enterText(
+        find.byKey(const Key('numero-mobile-money')),
+        '677123456',
+      );
+      await testeur.tap(find.byKey(const Key('confirmer-le-paiement')));
+      await testeur.pumpAndSettle();
+      await testeur.tap(find.text('J\'ai compris'));
+      await testeur.pumpAndSettle();
+
+      expect(find.text('Paiement en attente de validation'), findsOneWidget);
+      expect(find.text('Régler par mobile money'), findsNothing);
+
+      espace.fonds = sousMandat(etat: 'FONDS_RECUS');
+      await testeur.pump(const Duration(seconds: 10));
+      await testeur.pumpAndSettle();
+
+      expect(find.textContaining('Fonds reçus pour'), findsOneWidget);
+      expect(find.text('Paiement en attente de validation'), findsNothing);
+      await testeur.pump(const Duration(seconds: 30));
+    },
+  );
+
+  testWidgets('Les fonds reçus, l\'échéance dit que le cabinet paie', (
+    testeur,
+  ) async {
+    await poser(
+      testeur,
+      echeancier: Echeancier(echeances: [echeance()]),
+      espace: EspaceFeint(fonds: sousMandat(etat: 'FONDS_RECUS')),
+    );
+    await testeur.pumpAndSettle();
+
+    expect(
+      find.textContaining('le cabinet paie l\'administration pour vous'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('regler-CNPS')), findsNothing);
+  });
+
+  testWidgets(
+    'Sans mandat, les voies se disent, et la quittance reste offerte',
+    (testeur) async {
+      await poser(
+        testeur,
+        echeancier: Echeancier(echeances: [echeance()]),
+        espace: EspaceFeint(),
+      );
+      await testeur.pumpAndSettle();
+
+      expect(find.byKey(const Key('jai-paye-CNPS')), findsOneWidget);
+      await testeur.tap(find.byKey(const Key('voies-CNPS')));
+      await testeur.pumpAndSettle();
+      expect(find.text('Le cabinet paie pour vous'), findsOneWidget);
+      expect(find.text('Vous payez vous-même'), findsOneWidget);
+      expect(find.text('Le demander au cabinet'), findsOneWidget);
+    },
+  );
+}
+
+/// 20 octobre 2026 : la quittance passe par l'aperçu avant de partir. On l'envoie.
+Future<void> envoyerLaQuittanceRevue(WidgetTester testeur) async {
+  expect(find.text('Vérifier la quittance'), findsOneWidget);
+  // ⚠️ Pas de formulaire : ce que la quittance règle, l'écran le sait déjà.
+  expect(find.byKey(const Key('apercu-emetteur')), findsNothing);
+  await testeur.scrollUntilVisible(
+    find.byKey(const Key('apercu-envoyer')),
+    300,
+    scrollable: find.byType(Scrollable).last,
+  );
+  await testeur.ensureVisible(find.byKey(const Key('apercu-envoyer')));
+  await testeur.pumpAndSettle();
+  await testeur.runAsync(() async {
+    await testeur.tap(find.byKey(const Key('apercu-envoyer')));
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+  });
+  await testeur.pumpAndSettle();
 }

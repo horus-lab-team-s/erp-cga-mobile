@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../ports/appareil_photo.dart';
@@ -41,5 +42,45 @@ class AppareilPhotoDuSysteme implements AppareilPhoto {
       preferredCameraDevice: CameraDevice.rear,
     );
     return pris?.path;
+  }
+}
+
+/// La galerie du téléphone : la facture déjà reçue en photo, par WhatsApp ou par
+/// courriel, et qu'il serait absurde de rephotographier sur l'écran d'un autre
+/// appareil (18 octobre 2026).
+///
+/// ⚠️ La même réduction que l'appareil photo, pour la même raison : une image de
+/// la galerie peut peser autant qu'une photo prise à l'instant.
+class GalerieDuSysteme implements AppareilPhoto {
+  GalerieDuSysteme({ImagePicker? choix}) : _choix = choix ?? ImagePicker();
+
+  final ImagePicker _choix;
+
+  @override
+  Future<String?> photographier() async {
+    final pris = await _choix.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 2000,
+      imageQuality: 85,
+    );
+    return pris?.path;
+  }
+}
+
+/// Les fichiers du téléphone : un scan déjà fait, souvent un PDF reçu par
+/// courriel ou sorti du scanner du bureau (19 octobre 2026).
+///
+/// ⚠️ Pas de réduction ici : on ne recompresse pas un PDF. Le poids est contrôlé
+/// avant l'aperçu, contre la limite du serveur.
+class FichiersDuSysteme implements AppareilPhoto {
+  const FichiersDuSysteme();
+
+  @override
+  Future<String?> photographier() async {
+    final choisi = await FilePicker.pickFile(
+      type: FileType.custom,
+      allowedExtensions: const ['pdf', 'jpg', 'jpeg', 'png'],
+    );
+    return choisi?.path;
   }
 }

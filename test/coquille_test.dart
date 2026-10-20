@@ -12,11 +12,13 @@ import 'package:cga_mobile/domaine/piece_remise.dart';
 import 'package:cga_mobile/domaine/prise_de_vue.dart';
 import 'package:cga_mobile/ecrans/coquille.dart';
 import 'package:cga_mobile/marque.dart';
+import 'package:cga_mobile/ports/memoire_des_dossiers.dart';
 import 'package:cga_mobile/ports/appareil_photo.dart';
 import 'package:cga_mobile/ports/service_de_session.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'soutien/espace_feint.dart';
 import 'soutien/tableau_feint.dart';
 
 /// ─────────────────────────────────────────────────────────────────────────────
@@ -96,8 +98,14 @@ class AppareilFeint implements AppareilPhoto {
   AppareilFeint(this.cache);
   final Directory cache;
 
+  /// Combien de fois l'appareil photo s'est ouvert.
+  int ouvertures = 0;
+
   @override
-  Future<String?> photographier() async => null;
+  Future<String?> photographier() async {
+    ouvertures++;
+    return null;
+  }
 }
 
 /// Un dépôt dans la file, pour éprouver le compteur de la barre.
@@ -130,8 +138,11 @@ void main() {
   Future<SessionFeinte> poser(
     WidgetTester testeur, {
     SessionFeinte? session,
+    EspaceFeint? espace,
+    MemoireDesDossiers? memoire,
   }) async {
     final s = session ?? SessionFeinte();
+    espace ??= EspaceFeint();
     await testeur.pumpWidget(
       MaterialApp(
         theme: themeClair(),
@@ -142,6 +153,8 @@ void main() {
           remettre: (_) async => Reponse.accepte,
           quandDeconnecte: () {},
           tableau: TableauFeint(),
+          espace: espace,
+          memoire: memoire,
         ),
       ),
     );
@@ -158,14 +171,15 @@ void main() {
     expect(find.byKey(const Key('onglet-accueil')), findsOneWidget);
     expect(find.byKey(const Key('onglet-deposer')), findsOneWidget);
     expect(find.byKey(const Key('onglet-echeances')), findsOneWidget);
-    expect(find.byKey(const Key('onglet-entreprise')), findsOneWidget);
+    expect(find.byKey(const Key('onglet-plus')), findsOneWidget);
     expect(find.byKey(const Key('onglet-documents')), findsOneWidget);
     for (final libelle in [
       'Accueil',
       'Échéances',
       'Déposer',
       'Documents',
-      'Entreprise',
+      // 20 octobre 2026 : l'onglet dit ce qu'il ouvre, en un mot qui tient.
+      'Espace',
     ]) {
       expect(
         find.text(libelle),
@@ -232,12 +246,35 @@ void main() {
       'onglet-echeances',
       'onglet-deposer',
       'onglet-documents',
-      'onglet-entreprise',
+      'onglet-plus',
     ]) {
       final taille = testeur.getSize(find.byKey(Key(cle)));
       expect(taille.height, greaterThanOrEqualTo(48), reason: cle);
       expect(taille.width, greaterThanOrEqualTo(48), reason: cle);
     }
+  });
+
+  testWidgets("L'accueil se relit quand on y revient", (testeur) async {
+    // 18 octobre 2026 : une CNPS réglée depuis les échéances restait « en
+    // retard » sur l'accueil, lu une fois pour toutes à la connexion.
+    final session = await poser(testeur);
+    await testeur.tap(find.byKey(const Key('onglet-echeances')));
+    await testeur.pumpAndSettle();
+    final avant = session.demandesDEcheances.length;
+
+    // ⚠️ 20 octobre 2026 : pas dans les cinq minutes (voir `Fraicheur`) ; tirer
+    // vers le bas, et le retour d'un écran où l'on a payé, relisent toujours.
+    await testeur.tap(find.byKey(const Key('onglet-accueil')));
+    await testeur.pumpAndSettle();
+    expect(session.demandesDEcheances.length, avant);
+
+    await testeur.tap(find.byKey(const Key('onglet-echeances')));
+    await testeur.pumpAndSettle();
+    await testeur.pump(const Duration(minutes: 6));
+    await testeur.tap(find.byKey(const Key('onglet-accueil')));
+    await testeur.pumpAndSettle();
+
+    expect(session.demandesDEcheances.length, avant + 1);
   });
 
   testWidgets('Chaque onglet ouvre bien son écran', (testeur) async {
@@ -254,10 +291,22 @@ void main() {
     await testeur.pumpAndSettle();
     expect(find.text('Mes échéances'), findsOneWidget);
 
-    await testeur.tap(find.byKey(const Key('onglet-entreprise')));
+    // 18 octobre 2026 : « Plus » remplace « Entreprise », et mène à elle.
+    await testeur.tap(find.byKey(const Key('onglet-plus')));
     await testeur.pumpAndSettle();
     // ⚠️ On vise le titre de l'ÉCRAN, pas n'importe quel texte : le libellé de
     // l'onglet vit dans le même arbre, et un `find.text` nu les confondrait.
+    expect(
+      find.descendant(
+        of: find.byType(AppBar),
+        matching: find.text('Mon espace'),
+      ),
+      findsOneWidget,
+    );
+    await testeur.ensureVisible(find.byKey(const Key('plus-entreprise')));
+    await testeur.pumpAndSettle();
+    await testeur.tap(find.byKey(const Key('plus-entreprise')));
+    await testeur.pumpAndSettle();
     expect(
       find.descendant(
         of: find.byType(AppBar),
@@ -265,10 +314,43 @@ void main() {
       ),
       findsOneWidget,
     );
+    await testeur.pageBack();
+    await testeur.pumpAndSettle();
 
     await testeur.tap(find.byKey(const Key('onglet-documents')));
     await testeur.pumpAndSettle();
     expect(find.text('Mes documents'), findsOneWidget);
+  });
+
+  testWidgets(
+    'Des honoraires dus se signalent à l\'accueil et mènent au paiement',
+    (testeur) async {
+      // 18 octobre 2026 : le règlement est rangé sous « Plus » ; sans cette carte,
+      // un adhérent en retard ne le trouverait qu'en cherchant.
+      await poser(testeur, espace: EspaceFeint(honoraires: honorairesDEssai()));
+      // ⚠️ Remontée AU-DESSUS de la barre flottante, qui prendrait le toucher.
+      await Scrollable.ensureVisible(
+        testeur.element(find.byKey(const Key('accueil-honoraires'))),
+        alignment: 0.3,
+      );
+      await testeur.pumpAndSettle();
+      await testeur.tap(find.byKey(const Key('accueil-honoraires')));
+      await testeur.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.text('Mes honoraires'),
+        ),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('Rien n\'est dû : l\'accueil ne parle pas d\'honoraires', (
+    testeur,
+  ) async {
+    await poser(testeur);
+    expect(find.byKey(const Key('accueil-honoraires')), findsNothing);
   });
 
   testWidgets(
@@ -313,6 +395,7 @@ void main() {
             remettre: (_) async => Reponse.accepte,
             quandDeconnecte: () {},
             tableau: TableauFeint(),
+            espace: EspaceFeint(),
           ),
         ),
       );
@@ -341,9 +424,90 @@ void main() {
     // lui-même. Il a déménagé avec la responsabilité.
     await poser(testeur, session: SessionFeinte(panne: true));
 
-    expect(find.text('Aucun dossier à votre nom'), findsOneWidget);
+    // ⚠️ 19 octobre 2026 : « Aucun dossier à votre nom » s'affichait à qui n'avait
+    // que perdu le réseau, sans rien pour réessayer.
+    expect(find.text('Pas de réseau'), findsOneWidget);
+    expect(find.text('Aucun dossier à votre nom'), findsNothing);
+    expect(find.byKey(const Key('reessayer-dossiers')), findsOneWidget);
     expect(find.byKey(const Key('onglet-deposer')), findsOneWidget);
   });
+
+  testWidgets("Le bouton central ouvre l'appareil photo d'un seul appui", (
+    testeur,
+  ) async {
+    // 19 octobre 2026 : depuis un autre onglet, il ne faisait que changer d'onglet.
+    final appareil = AppareilFeint(racine);
+    prise = PriseDeVue(
+      appareil: appareil,
+      file: file,
+      photos: Directory('${racine.path}/photos'),
+    );
+    await poser(testeur);
+
+    await testeur.tap(find.byKey(const Key('onglet-deposer')));
+    await testeur.pumpAndSettle();
+
+    expect(appareil.ouvertures, 1);
+    expect(find.text('Mes justificatifs'), findsOneWidget);
+  });
+
+  testWidgets(
+    "« Déposer une pièce » demande d'où elle vient, et le scan ouvre les fichiers",
+    (testeur) async {
+      // 19 octobre 2026 : une pièce demandée par le cabinet arrive souvent en PDF.
+      final appareil = AppareilFeint(racine);
+      final fichiers = AppareilFeint(racine);
+      prise = PriseDeVue(
+        appareil: appareil,
+        fichiers: fichiers,
+        file: file,
+        photos: Directory('${racine.path}/photos'),
+      );
+      await poser(testeur);
+
+      await testeur.ensureVisible(
+        find.byKey(const Key('grande-action-deposer')),
+      );
+      await testeur.pumpAndSettle();
+      await testeur.tap(find.byKey(const Key('grande-action-deposer')));
+      await testeur.pumpAndSettle();
+
+      expect(find.byKey(const Key('source-appareil')), findsOneWidget);
+      expect(find.byKey(const Key('source-galerie')), findsNothing);
+      await testeur.tap(find.byKey(const Key('source-fichier')));
+      await testeur.pumpAndSettle();
+
+      expect(fichiers.ouvertures, 1);
+      expect(appareil.ouvertures, 0);
+    },
+  );
+
+  testWidgets("Le retour d'Android ramène d'abord à l'accueil", (
+    testeur,
+  ) async {
+    await poser(testeur);
+    await testeur.tap(find.byKey(const Key('onglet-echeances')));
+    await testeur.pumpAndSettle();
+
+    await testeur.binding.handlePopRoute();
+    await testeur.pumpAndSettle();
+
+    expect(find.byKey(const Key('salutation')), findsOneWidget);
+  });
+
+  testWidgets(
+    'Sans réseau, les derniers dossiers connus gardent le dépôt ouvert',
+    (testeur) async {
+      await poser(
+        testeur,
+        session: SessionFeinte(panne: true),
+        memoire: _MemoireFeinte(['M081234567890P']),
+      );
+
+      expect(find.text('Pas de réseau'), findsNothing);
+      expect(find.byKey(const Key('salutation')), findsOneWidget);
+    },
+  );
 
   testWidgets("Changer d'onglet ne perd pas l'écran qu'on quitte", (
     testeur,
@@ -399,4 +563,15 @@ void main() {
       },
     );
   });
+}
+
+class _MemoireFeinte implements MemoireDesDossiers {
+  _MemoireFeinte(this._dossiers);
+  List<String>? _dossiers;
+
+  @override
+  Future<List<String>?> lire() async => _dossiers;
+
+  @override
+  Future<void> retenir(List<String> dossiers) async => _dossiers = dossiers;
 }

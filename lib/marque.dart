@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// Les jetons de la marque, traduits du système du web.
 ///
@@ -95,6 +96,27 @@ abstract final class Marque {
 
   static const reussiteSombre = Color(0xFF4CC38A);
   static const reussite100Sombre = Color(0xFF14312A);
+
+  // ── Les teintes d'état, selon le thème (19 octobre 2026) ─────────────────
+  //
+  // ⚠️ Le vert, l'ambre et l'indigo de la marque sont calculés pour un fond CLAIR.
+  // Posés tels quels sur une carte sombre, le vert de « réglée » tombait à 3:1 et
+  // l'indigo d'une icône disparaissait presque. Un texte ou une icône d'état prend
+  // donc sa teinte ici, qui suit le thème.
+  static bool _sombre(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark;
+
+  static Color reussiteDe(BuildContext context) =>
+      _sombre(context) ? reussiteSombre : reussite;
+
+  static Color reussiteDouceDe(BuildContext context) =>
+      _sombre(context) ? reussite100Sombre : reussite100;
+
+  static Color alerteDe(BuildContext context) =>
+      _sombre(context) ? alerteSombre : alerte;
+
+  static Color indigoDe(BuildContext context) =>
+      _sombre(context) ? indigo700Sombre : indigo700;
   static const alerteSombre = Color(0xFFE0A458);
   static const alerte100Sombre = Color(0xFF3A2A16);
   static const dangerSombre = Color(0xFFF2726A);
@@ -231,6 +253,11 @@ abstract final class Marque {
   /// entre le poste de travail et le téléphone.
   static const rayonCarte = 16.0;
 
+  /// Le rayon des cartes et des chapeaux — et d'eux seuls (19 octobre 2026).
+  /// ⚠️ Quatre points de plus que les champs et les boutons : la carte contient,
+  /// le champ est contenu. Au même rayon, le champ paraissait collé à son bord.
+  static const rayonDeContenant = 20.0;
+
   /// Un bloc posé DANS une carte, un élément de moins de 28 points de haut.
   /// ⚠️ La moitié du rayon de la carte : un bloc intérieur au même rayon que
   /// son contenant donne l'impression d'un cadre qui flotte.
@@ -238,6 +265,13 @@ abstract final class Marque {
 
   /// Une pastille, une étiquette, un bouton en forme de gélule.
   static const rayonPastille = 999.0;
+
+  // ── Les polices (18 octobre 2026) ─────────────────────────────────────
+  /// Le texte courant, les montants, les champs : Inter, celle de la console.
+  static const policeTexte = 'Inter';
+
+  /// Les titres et les grands chiffres : Poppins, celle de la console.
+  static const policeTitre = 'Poppins';
 
   // ── Le dégradé de marque ──────────────────────────────────────────────
   //
@@ -397,24 +431,38 @@ ThemeData _theme({
     //   · les textes courants s'aèrent (interligne 1,5) : on les lit sur un
     //     téléphone, souvent debout, souvent dehors ;
     //   · rien ne descend sous 13 px. En dessous, un texte devient un décor.
+    // 18 octobre 2026 (point 10) : Inter pour le texte, Poppins pour les titres, comme sur
+    // la console et la vitrine. Jointes à l'application (`pubspec.yaml`).
+    fontFamily: Marque.policeTexte,
     textTheme: _echelle(encre, encreDouce),
     // ⚠️ Pas de vaguelette qui s'étale sur toute la largeur d'une ligne : le
     // § 10.7 proscrit l'animation spectaculaire, et sur un téléphone d'entrée
     // de gamme elle saccade.
     splashFactory: InkSparkle.splashFactory,
+    // ⚠️ 18 octobre 2026 : LA BARRE DE TITRE EST CLAIRE. Une dalle indigo pleine
+    // en tête de chaque écran pesait comme un bandeau d'administration ; l'espace
+    // web pose son titre sur le fond de page, en indigo, dans la police des
+    // titres. Le mobile fait de même. La barre ne prend un fond qu'une fois le
+    // contenu passé dessous, pour rester lisible au défilement.
     appBarTheme: AppBarTheme(
-      backgroundColor: institution,
+      backgroundColor: fond,
       foregroundColor: brightness == Brightness.light
-          ? Colors.white
-          : Marque.encre900Sombre,
+          ? Marque.indigo900
+          : encre,
+      surfaceTintColor: Colors.transparent,
       elevation: 0,
+      scrolledUnderElevation: 0.6,
+      shadowColor: filetFort,
       centerTitle: false,
+      systemOverlayStyle: brightness == Brightness.light
+          ? SystemUiOverlayStyle.dark
+          : SystemUiOverlayStyle.light,
       titleTextStyle: TextStyle(
-        fontSize: 19,
+        fontFamily: Marque.policeTitre,
+        fontSize: 21,
         fontWeight: FontWeight.w600,
-        color: brightness == Brightness.light
-            ? Colors.white
-            : Marque.encre900Sombre,
+        letterSpacing: -0.2,
+        color: brightness == Brightness.light ? Marque.indigo900 : encre,
       ),
     ),
     cardTheme: CardThemeData(
@@ -433,7 +481,11 @@ ThemeData _theme({
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(Marque.rayonCarte),
         ),
+        // ⚠️ 18 octobre 2026 : LA FAMILLE EST NOMMÉE. Un style de bouton sans
+        // famille ne prend pas celle du thème : il tombait sur Roboto, la police
+        // du système, et les boutons n'étaient pas en Inter comme le reste.
         textStyle: const TextStyle(
+          fontFamily: Marque.policeTexte,
           fontSize: 16,
           fontWeight: FontWeight.w600,
           letterSpacing: 0.1,
@@ -448,13 +500,21 @@ ThemeData _theme({
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(Marque.rayonCarte),
         ),
-        textStyle: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600),
+        textStyle: const TextStyle(
+          fontFamily: Marque.policeTexte,
+          fontSize: 15.5,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     ),
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
         foregroundColor: titre,
-        textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+        textStyle: const TextStyle(
+          fontFamily: Marque.policeTexte,
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     ),
     // ⚠️ DES CHAMPS REMPLIS, ET NON CERCLÉS.
@@ -577,7 +637,10 @@ ThemeData _theme({
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.all(Radius.circular(Marque.rayonCarte)),
       ),
+      // ⚠️ La famille est nommée : sans elle, les puces tombaient sur la police du
+      // système au lieu d'Inter (relevé le 19 octobre 2026).
       labelStyle: TextStyle(
+        fontFamily: Marque.policeTexte,
         fontSize: 13,
         fontWeight: FontWeight.w600,
         color: encre,
@@ -629,6 +692,7 @@ ThemeData _theme({
 TextTheme _echelle(Color encre, Color encreDouce) => TextTheme(
   // Un montant, un chiffre qui est le sujet de l'écran.
   headlineLarge: TextStyle(
+    fontFamily: Marque.policeTitre,
     fontSize: 32,
     height: 1.15,
     fontWeight: FontWeight.w700,
@@ -636,6 +700,7 @@ TextTheme _echelle(Color encre, Color encreDouce) => TextTheme(
     color: encre,
   ),
   headlineMedium: TextStyle(
+    fontFamily: Marque.policeTitre,
     fontSize: 28,
     height: 1.18,
     fontWeight: FontWeight.w700,
@@ -643,6 +708,7 @@ TextTheme _echelle(Color encre, Color encreDouce) => TextTheme(
     color: encre,
   ),
   headlineSmall: TextStyle(
+    fontFamily: Marque.policeTitre,
     fontSize: 23,
     height: 1.25,
     fontWeight: FontWeight.w700,
@@ -651,6 +717,7 @@ TextTheme _echelle(Color encre, Color encreDouce) => TextTheme(
   ),
   // Le titre d'une section d'écran.
   titleLarge: TextStyle(
+    fontFamily: Marque.policeTitre,
     fontSize: 20,
     height: 1.28,
     fontWeight: FontWeight.w700,
@@ -659,6 +726,7 @@ TextTheme _echelle(Color encre, Color encreDouce) => TextTheme(
   ),
   // Le titre d'une carte.
   titleMedium: TextStyle(
+    fontFamily: Marque.policeTitre,
     fontSize: 16.5,
     height: 1.32,
     fontWeight: FontWeight.w600,

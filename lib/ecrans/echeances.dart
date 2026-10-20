@@ -1,11 +1,22 @@
 import 'package:flutter/material.dart';
 
+import '../composants/actions.dart';
 import '../composants/carte.dart';
+import '../composants/etat.dart';
+import '../composants/joindre.dart';
+import '../composants/paiement.dart';
+import '../composants/source_d_image.dart';
+import '../contenu/cabinet.dart';
+import '../domaine/fonds_confies.dart';
+import '../domaine/fraicheur.dart';
+import '../domaine/suivi_du_paiement.dart';
 import '../marque.dart';
 import '../domaine/echeance.dart';
 import '../domaine/prise_de_vue.dart';
 import '../domaine/preuve.dart';
+import '../ports/service_de_l_espace.dart';
 import '../ports/service_de_session.dart';
+import 'apercu_du_depot.dart';
 
 /// Ce que l'adhérent doit, et quand.
 ///
@@ -24,13 +35,26 @@ class EcranEcheances extends StatefulWidget {
   const EcranEcheances({
     super.key,
     required this.session,
-    required this.dossiers,
+    required this.dossier,
     required this.quandSessionExpire,
     required this.priseDeVue,
+    this.espace,
+    this.apresLecture,
   });
 
+  /// Chaque lecture réussie, pour les rappels d'échéances posés sur le téléphone.
+  final void Function(Echeancier)? apresLecture;
+
+  /// 18 octobre 2026 : les fonds confiés au cabinet, et leur règlement par mobile
+  /// money. `null` : l'écran n'offre que la quittance, comme avant.
+  final ServiceDeLEspace? espace;
+
   final ServiceDeSession session;
-  final List<String> dossiers;
+
+  /// ⚠️ 20 octobre 2026 : LE dossier choisi dans l'en-tête de l'accueil. L'écran
+  /// avait son propre sélecteur, et l'accueil le sien : deux choix qui pouvaient
+  /// se contredire d'un onglet à l'autre.
+  final String dossier;
   final VoidCallback quandSessionExpire;
 
   /// ⚠️ La prise de vue sert ici à photographier une QUITTANCE, jamais un
@@ -42,16 +66,25 @@ class EcranEcheances extends StatefulWidget {
   State<EcranEcheances> createState() => _EtatDesEcheances();
 }
 
-/// ⚠️ `WidgetsBindingObserver` : l'écran redemande au serveur à chaque retour au
+/// ⚠️ `WidgetsBindingObserver` : l'écran redemande au serveur au retour au
 /// premier plan. Même raison que l'historique, et plus forte : une échéance
 /// franchie pendant que l'application dormait change l'état de la carte, et un
 /// écran qui dit « à venir » sur une obligation passée en retard se trompe dans
 /// le sens qui coûte des majorations.
+///
+/// ⚠️ 20 octobre 2026 : SEULEMENT SI LA LECTURE A PLUS DE CINQ MINUTES (voir
+/// `Fraicheur`). Aucune échéance ne se franchit en cinq minutes qui ne l'était
+/// déjà ; tirer vers le bas relit toujours.
 class _EtatDesEcheances extends State<EcranEcheances>
     with WidgetsBindingObserver {
   Echeancier? _echeancier;
   bool _lectureEnCours = true;
-  late String _dossier = widget.dossiers.first;
+  String get _dossier => widget.dossier;
+  final _fraicheur = Fraicheur();
+
+  /// Les appels de fonds dont la demande de débit est partie, et que l'opérateur
+  /// n'a pas encore confirmés.
+  final _enAttenteDeValidation = <String>{};
 
   @override
   void initState() {
@@ -67,21 +100,58 @@ class _EtatDesEcheances extends State<EcranEcheances>
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState etat) {
-    if (etat == AppLifecycleState.resumed) {
+  void didUpdateWidget(EcranEcheances ancien) {
+    super.didUpdateWidget(ancien);
+    if (ancien.dossier != widget.dossier) {
+      setState(() {
+        _echeancier = null;
+        _enAttenteDeValidation.clear();
+      });
       _relire();
     }
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState etat) {
+    if (etat == AppLifecycleState.resumed && _fraicheur.perimee) {
+      _relire();
+    }
+  }
+
+  /// Ce que le cabinet paie pour l'adhérent. Sans réseau, aucun : l'écran offre
+  /// alors la quittance, la voie qui marche toujours.
+  FondsConfies _fonds = FondsConfies.aucun;
+
   Future<void> _relire() async {
     setState(() => _lectureEnCours = true);
-    final lu = await widget.session.mesEcheances(_dossier);
+    final espace = widget.espace;
+    final (lu, fonds) = await (
+      widget.session.mesEcheances(_dossier),
+      espace == null
+          ? Future.value(const Lecture<FondsConfies>.lue(FondsConfies.aucun))
+          : espace.mesFondsConfies(_dossier),
+    ).wait;
     if (!mounted) return;
+    final f = fonds.valeur ?? FondsConfies.aucun;
     setState(() {
       _echeancier = lu;
+      _fonds = f;
       _lectureEnCours = false;
+      // Un appel dont les fonds sont constatés perd sa mention « en attente ».
+      _enAttenteDeValidation.removeWhere(
+        (id) => !f.appels.any(
+          (a) => a.identifiant == id && a.etat == EtatDeLAppel.aRegler,
+        ),
+      );
     });
-    if (lu.sessionAExpire) widget.quandSessionExpire();
+    if (lu.sessionAExpire) {
+      widget.quandSessionExpire();
+      return;
+    }
+    if (lu.serveurJoignable && lu.copieDu == null) {
+      _fraicheur.marquer();
+      widget.apresLecture?.call(lu);
+    }
   }
 
   /// L'obligation dont la preuve est en cours d'envoi, s'il y en a une.
@@ -90,8 +160,80 @@ class _EtatDesEcheances extends State<EcranEcheances>
   /// quittances que le cabinet devrait démêler.
   String? _envoiEnCours;
 
+  /// Sous mandat : remettre ses fonds au cabinet par mobile money. L'adhérent n'a
+  /// alors rien à photographier : le cabinet paie et porte la quittance.
+  Future<void> _regler(Echeance e, AppelDeFonds appel) async {
+    final espace = widget.espace;
+    if (espace == null) return;
+    final envoyee = await ouvrirUneFeuille<bool>(
+      context,
+      glissable: false,
+      construire: (_) => FeuilleDePaiement(
+        objet: '${e.titre} · ${e.periode}',
+        montant: appel.montant,
+        envoyer: (telephone) => espace.confierSesFonds(
+          dossier: _dossier,
+          appel: appel.identifiant,
+          telephone: telephone,
+        ),
+        apresLePaiement:
+            'Le cabinet paie l\'administration pour vous et garde la quittance : vous n\'avez rien à envoyer.',
+      ),
+    );
+    if (envoyee != true || !mounted) return;
+    // 20 octobre 2026 : la carte dit « en attente de validation », et l'écran relit
+    // trois fois. Voir `suivreLePaiement`.
+    setState(() => _enAttenteDeValidation.add(appel.identifiant));
+    final regle = await suivreLePaiement(
+      continuer: () => mounted,
+      estRegle: () async {
+        await _relire();
+        return !_enAttenteDeValidation.contains(appel.identifiant);
+      },
+    );
+    if (regle && mounted) {
+      annoncer(
+        context,
+        'Fonds reçus pour ${e.titre} · ${e.periode} : le cabinet paie '
+        'l\'administration pour vous.',
+      );
+    }
+  }
+
+  /// Les façons de régler une échéance, dites une fois, clairement.
+  Future<void> _autresVoies(Echeance e) => ouvrirUneFeuille<void>(
+    context,
+    construire: (contexte) => _VoiesDeReglement(
+      echeance: e,
+      mandatee: _fonds.mandate(e.codeObligation),
+      envoyerLaQuittance: () {
+        Navigator.of(contexte).pop();
+        _jaiPaye(e);
+      },
+    ),
+  );
+
+  /// La quittance, revue avant d'envoyer (20 octobre 2026). Rend son chemin, ou
+  /// `null` si l'adhérent renonce.
+  ///
+  /// ⚠️ L'aperçu du dépôt, sans son formulaire : une quittance floue partait d'un
+  /// appui, et le cabinet ne pouvait rien rattacher.
+  Future<String?> _quittanceRevue() async {
+    while (true) {
+      final chemin = await obtenirUneImage(context, widget.priseDeVue);
+      if (chemin == null || !mounted) return null;
+      final decision = await Navigator.of(context).push<DecisionDApercu>(
+        MaterialPageRoute(
+          builder: (_) => EcranApercuDuDepot(chemin: chemin, quittance: true),
+        ),
+      );
+      if (decision is EnvoyerLaPiece) return chemin;
+      if (decision is! ReprendreLaPhoto || !mounted) return null;
+    }
+  }
+
   Future<void> _jaiPaye(Echeance e) async {
-    final chemin = await widget.priseDeVue.copieDurable();
+    final chemin = await _quittanceRevue();
     if (chemin == null || !mounted) return;
     setState(() => _envoiEnCours = e.codeObligation);
     final sort = await widget.session.envoyerLaPreuve(
@@ -151,54 +293,31 @@ class _EtatDesEcheances extends State<EcranEcheances>
   Widget build(BuildContext context) {
     final e = _echeancier;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Mes échéances'),
-        actions: [
-          if (widget.dossiers.length > 1)
-            PopupMenuButton<String>(
-              key: const Key('choix-dossier-echeances'),
-              initialValue: _dossier,
-              tooltip: 'Changer de dossier',
-              icon: const Icon(Icons.folder_outlined),
-              onSelected: (d) {
-                setState(() => _dossier = d);
-                _relire();
-              },
-              itemBuilder: (_) => [
-                for (final d in widget.dossiers)
-                  PopupMenuItem(value: d, child: Text(d)),
-              ],
-            ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Mes échéances')),
       body: RefreshIndicator(
         onRefresh: _relire,
         child: switch ((_lectureEnCours, e)) {
-          (true, null) => const Center(
+          (true, null) => const Squelette(
             key: Key('echeances-en-attente'),
-            child: CircularProgressIndicator(),
+            hauteurDeCarte: 128,
           ),
-          (_, null) => const _RienDuTout(
-            titre: 'Échéancier indisponible',
-            detail: 'Le serveur n\'a pas répondu.',
-            icone: Icons.cloud_off_outlined,
-          ),
-          (_, final Echeancier x) when x.sessionAExpire => const _RienDuTout(
+          (_, null) => EtatDePanne(serveurEnPanne: true, reessayer: _relire),
+          (_, final Echeancier x) when x.sessionAExpire => const EtatVide(
             titre: 'Session expirée',
             detail: 'Reconnectez-vous pour consulter vos échéances.',
             icone: Icons.lock_outline,
           ),
-          (_, final Echeancier x) when !x.serveurJoignable => const _RienDuTout(
+          (_, final Echeancier x) when !x.serveurJoignable => EtatDePanne(
             // ⚠️ SURTOUT PAS « vous êtes à jour ». Voir l'en-tête d'`Echeancier` :
             // dire cela à un adhérent en retard de dix-neuf mois parce que le
             // réseau manquait est le pire mensonge que cet écran puisse faire.
-            titre: 'Pas de réseau',
-            detail:
+            serveurEnPanne: x.serveurEnPanne,
+            horsLigne:
                 'Vos échéances se lisent sur le serveur. Cette liste reparaîtra '
                 'dès que la connexion revient.',
-            icone: Icons.wifi_off_outlined,
+            reessayer: _relire,
           ),
-          (_, final Echeancier x) when x.echeances.isEmpty => const _RienDuTout(
+          (_, final Echeancier x) when x.echeances.isEmpty => const EtatVide(
             titre: 'Aucune échéance',
             detail:
                 'Le cabinet n\'a encore inscrit aucune obligation à votre '
@@ -210,6 +329,11 @@ class _EtatDesEcheances extends State<EcranEcheances>
             echeancier: x,
             jaiPaye: _jaiPaye,
             envoiEnCours: _envoiEnCours,
+            fonds: _fonds,
+            // ⚠️ Pas de débit depuis une copie : l'appel est peut-être réglé.
+            regler: widget.espace == null || x.copieDu != null ? null : _regler,
+            autresVoies: _autresVoies,
+            enAttenteDeValidation: _enAttenteDeValidation,
           ),
         },
       ),
@@ -222,8 +346,16 @@ class _Liste extends StatelessWidget {
     required this.echeancier,
     required this.jaiPaye,
     required this.envoiEnCours,
+    this.fonds = FondsConfies.aucun,
+    this.regler,
+    this.autresVoies,
+    this.enAttenteDeValidation = const {},
   });
 
+  final Set<String> enAttenteDeValidation;
+  final FondsConfies fonds;
+  final Future<void> Function(Echeance, AppelDeFonds)? regler;
+  final Future<void> Function(Echeance)? autresVoies;
   final Echeancier echeancier;
   final Future<void> Function(Echeance) jaiPaye;
   final String? envoiEnCours;
@@ -240,6 +372,13 @@ class _Liste extends StatelessWidget {
       Marque.espaceSousLaBarreDe(context),
     ),
     children: [
+      if (echeancier.copieDu != null) ...[
+        BandeauHorsLigne(
+          copieDu: echeancier.copieDu!,
+          serveurEnPanne: echeancier.serveurEnPanne,
+        ),
+        const SizedBox(height: Marque.espace3),
+      ],
       _Verdict(echeancier: echeancier),
       const SizedBox(height: 22),
       for (final e in echeancier.echeances)
@@ -249,6 +388,13 @@ class _Liste extends StatelessWidget {
             echeance: e,
             jaiPaye: jaiPaye,
             enCours: envoiEnCours == e.codeObligation,
+            mandatee: fonds.mandate(e.codeObligation),
+            appel: fonds.appelPour(e.codeObligation, e.periodeDebut),
+            regler: regler,
+            autresVoies: autresVoies,
+            enAttenteDeValidation: enAttenteDeValidation.contains(
+              fonds.appelPour(e.codeObligation, e.periodeDebut)?.identifiant,
+            ),
           ),
         ),
     ],
@@ -273,7 +419,9 @@ class _Verdict extends StatelessWidget {
     final (String phrase, String detail) = grave
         ? (
             '$periodes période${periodes > 1 ? "s" : ""} en retard',
-            'Réglez la plus ancienne d\'abord, puis envoyez la preuve au cabinet.',
+            // 18 octobre 2026 : deux voies, dites dès le chapeau.
+            'Réglez la plus ancienne d\'abord : par mobile money quand le cabinet paie '
+                'pour vous, sinon envoyez votre quittance.',
           )
         : (
             'Rien en retard',
@@ -295,8 +443,23 @@ class _Carte extends StatefulWidget {
     required this.echeance,
     required this.jaiPaye,
     required this.enCours,
+    this.mandatee = false,
+    this.appel,
+    this.regler,
+    this.autresVoies,
+    this.enAttenteDeValidation = false,
   });
 
+  /// La demande de débit de cet appel est partie, sans confirmation encore.
+  final bool enAttenteDeValidation;
+
+  /// Le cabinet paie cette obligation pour l'adhérent (mandat de paiement).
+  final bool mandatee;
+
+  /// L'appel de fonds de cette période, quand le cabinet l'a arrêté.
+  final AppelDeFonds? appel;
+  final Future<void> Function(Echeance, AppelDeFonds)? regler;
+  final Future<void> Function(Echeance)? autresVoies;
   final Echeance echeance;
   final Future<void> Function(Echeance) jaiPaye;
   final bool enCours;
@@ -313,6 +476,7 @@ class _EtatDeLaCarte extends State<_Carte> {
     final e = widget.echeance;
     final couleurs = Theme.of(context).colorScheme;
     final alerte = e.etat.demandeUnGeste;
+    final appel = widget.appel;
 
     // ⚠️ L'ALERTE SE DIT PAR UN BANDEAU, PLUS PAR UN CADRE ROUGE.
     //
@@ -350,9 +514,16 @@ class _EtatDeLaCarte extends State<_Carte> {
                 ),
                 const SizedBox(height: Marque.espace1),
                 Text(
-                  e.periode,
+                  // 19 octobre 2026 : la date limite, l'information n° 1, n'était
+                  // affichée que sur l'accueil.
+                  e.etat.close
+                      ? e.periode
+                      : '${e.periode} · '
+                            '${alerte ? "à payer depuis le" : "à payer avant le"} '
+                            '${jourLong(e.echeanceLe)}',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: couleurs.onSurfaceVariant,
+                    color: alerte ? couleurs.error : couleurs.onSurfaceVariant,
+                    fontWeight: alerte ? FontWeight.w600 : null,
                   ),
                 ),
                 const SizedBox(height: Marque.espace3),
@@ -372,8 +543,11 @@ class _EtatDeLaCarte extends State<_Carte> {
                   couleur: alerte ? couleurs.error : null,
                   icone: alerte
                       ? Icons.error_outline
-                      : e.etat == EtatPourLAdherent.preuveEnvoyee
+                      : e.etat == EtatPourLAdherent.preuveEnvoyee ||
+                            e.etat == EtatPourLAdherent.fondsRecus
                       ? Icons.hourglass_top_outlined
+                      : e.etat == EtatPourLAdherent.payee
+                      ? Icons.task_alt
                       : e.etat.close
                       ? Icons.task_alt
                       : Icons.schedule_outlined,
@@ -409,7 +583,18 @@ class _EtatDeLaCarte extends State<_Carte> {
           // a réglé ailleurs — guichet, Mobile Money, virement — et il en
           // apporte la preuve. L'application ne sait pas encaisser, et le
           // serveur non plus pour un adhérent.
-          if (alerte)
+          // ── Comment régler (18 octobre 2026) ──────────────────────────
+          //
+          // « Je peux faire ce versement depuis mon téléphone, et je n'ai plus
+          // besoin d'envoyer une capture. » Sous mandat, l'adhérent remet ses
+          // fonds au cabinet par mobile money, et le cabinet paie
+          // l'administration : rien à photographier. Sinon, il paie lui-même et
+          // envoie sa quittance, qui reste la voie qui marche toujours.
+          //
+          // ⚠️ LE GESTE N'EST OFFERT QUE SUR CE QUI DEMANDE UN GESTE : sur une
+          // échéance à venir il n'y a rien à prouver, et sur une preuve déjà
+          // envoyée le cabinet vérifie.
+          if (alerte || appel != null)
             Padding(
               padding: const EdgeInsets.fromLTRB(
                 Marque.espace4,
@@ -417,29 +602,27 @@ class _EtatDeLaCarte extends State<_Carte> {
                 Marque.espace4,
                 0,
               ),
-              child: FilledButton.tonalIcon(
-                key: Key('jai-paye-${e.codeObligation}'),
-                onPressed: widget.enCours ? null : () => widget.jaiPaye(e),
-                icon: widget.enCours
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2.2),
-                      )
-                    : const Icon(Icons.photo_camera_outlined, size: 18),
-                label: Text(
-                  widget.enCours
-                      ? 'Envoi en cours…'
-                      : 'J\'ai déjà payé : envoyer la quittance',
-                ),
+              child: _Voie(
+                echeance: e,
+                mandatee: widget.mandatee,
+                appel: widget.appel,
+                enCours: widget.enCours,
+                enAttenteDeValidation: widget.enAttenteDeValidation,
+                jaiPaye: () => widget.jaiPaye(e),
+                regler: widget.regler == null || widget.appel == null
+                    ? null
+                    : () => widget.regler!(e, widget.appel!),
+                autresVoies: widget.autresVoies == null
+                    ? null
+                    : () => widget.autresVoies!(e),
               ),
             ),
           if (e.deQuoiSAgitIl != null || e.enCasDeRetard != null)
             // ⚠️ L'explication est REPLIÉE par défaut. Dépliée, cinq cartes
             // font un mur de texte que personne ne lit ; absente, l'adhérent
             // ignore ce que « CNPS » veut dire. Le serveur fournit ces phrases,
-            // et elles viennent du référentiel : ce n'est pas l'application qui
-            // explique le droit.
+            // et elles viennent du référentiel du cabinet : ce n'est pas
+            // l'application qui explique le droit.
             TextButton.icon(
               key: Key('expliquer-${e.codeObligation}'),
               onPressed: () => setState(() => _deplie = !_deplie),
@@ -484,45 +667,264 @@ class _EtatDeLaCarte extends State<_Carte> {
   }
 }
 
-class _RienDuTout extends StatelessWidget {
-  const _RienDuTout({
-    required this.titre,
-    required this.detail,
-    required this.icone,
+/// La voie de règlement d'une échéance, selon qu'elle est confiée au cabinet ou non.
+class _Voie extends StatelessWidget {
+  const _Voie({
+    required this.echeance,
+    required this.mandatee,
+    required this.appel,
+    required this.enCours,
+    required this.jaiPaye,
+    required this.regler,
+    required this.autresVoies,
+    this.enAttenteDeValidation = false,
   });
 
-  final String titre;
-  final String detail;
-  final IconData icone;
+  final bool enAttenteDeValidation;
+  final Echeance echeance;
+  final bool mandatee;
+  final AppelDeFonds? appel;
+  final bool enCours;
+  final VoidCallback jaiPaye;
+  final VoidCallback? regler;
+  final VoidCallback? autresVoies;
 
   @override
   Widget build(BuildContext context) {
-    final couleurs = Theme.of(context).colorScheme;
-    // `ListView` et non `Center` : le geste de tirer pour rafraîchir ne
-    // fonctionne que sur une zone qui défile.
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(32, 90, 32, 32),
+    final e = echeance;
+    final a = appel;
+    final theme = Theme.of(context);
+    final douce = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+      height: 1.4,
+    );
+    final montant = a?.montant ?? e.montantEstime?.round();
+
+    // Les fonds sont remis : le cabinet paie, ou a payé. Rien à faire.
+    if (a != null && a.etat != EtatDeLAppel.aRegler) {
+      final reverse = a.etat == EtatDeLAppel.reverse;
+      return Row(
+        children: [
+          Icon(
+            reverse ? Icons.verified : Icons.hourglass_top_outlined,
+            size: 20,
+            color: reverse
+                ? Marque.reussiteDe(context)
+                : theme.colorScheme.primary,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              reverse
+                  ? 'Payée par le cabinet, quittance gardée à votre dossier.'
+                  : 'Vos ${montantFcfa(a.montant)} sont reçus : le cabinet paie l\'administration pour vous.',
+              style: theme.textTheme.bodyMedium,
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Icon(icone, size: 44, color: couleurs.onSurfaceVariant),
-        const SizedBox(height: 18),
-        Text(
-          titre,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: couleurs.onSurface,
+        if (montant != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Row(
+              children: [
+                // Sans appel, le montant n'est qu'estimé d'après la paie : le
+                // dire, plutôt que « à verser » à côté de « pas encore arrêté ».
+                Text(
+                  a == null ? 'Estimé d\'après votre paie' : 'À verser',
+                  style: douce,
+                ),
+                const Spacer(),
+                Text(
+                  montantFcfa(montant),
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          detail,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: couleurs.onSurfaceVariant,
-            height: 1.5,
+        if (a != null && enAttenteDeValidation) ...[
+          const EnAttenteDeValidation(),
+          if (regler != null)
+            TextButton(
+              key: Key('regler-${e.codeObligation}'),
+              onPressed: regler,
+              child: const Text('Rien reçu ? Renvoyer la demande'),
+            ),
+        ] else if (a != null && regler != null) ...[
+          BoutonDAction(
+            key: Key('regler-${e.codeObligation}'),
+            libelle: 'Régler par mobile money',
+            icone: Icons.phone_iphone,
+            surAppui: regler,
           ),
-        ),
+          const SizedBox(height: 6),
+          Text(
+            'Le cabinet paie l\'administration pour vous et garde la quittance : rien à photographier.',
+            style: douce,
+          ),
+          TextButton(
+            key: Key('jai-paye-${e.codeObligation}'),
+            onPressed: enCours ? null : jaiPaye,
+            child: Text(
+              enCours
+                  ? 'Envoi en cours…'
+                  : 'J\'ai déjà payé moi-même : envoyer la quittance',
+            ),
+          ),
+        ] else ...[
+          if (mandatee)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                montant != null
+                    ? 'Le cabinet paie cette échéance pour vous. Dès qu\'il vous aura '
+                          'appelé ce montant, vous le réglerez ici par mobile money.'
+                    : 'Le cabinet paie cette échéance pour vous. Dès qu\'il aura arrêté le montant, '
+                          'vous le réglerez ici par mobile money.',
+                style: douce,
+              ),
+            ),
+          // ⚠️ Le libellé dit « j'ai déjà payé », jamais « payer » : l'adhérent a
+          // réglé ailleurs, et il en apporte la preuve.
+          BoutonDAction(
+            key: Key('jai-paye-${e.codeObligation}'),
+            libelle: 'J\'ai déjà payé : envoyer la quittance',
+            libelleEnCours: 'Envoi en cours…',
+            icone: Icons.photo_camera_outlined,
+            enCours: enCours,
+            surAppui: jaiPaye,
+            tonal: true,
+          ),
+        ],
+        if (autresVoies != null)
+          TextButton.icon(
+            key: Key('voies-${e.codeObligation}'),
+            onPressed: autresVoies,
+            icon: const Icon(Icons.help_outline, size: 18),
+            label: const Text('Comment régler cette échéance ?'),
+          ),
       ],
     );
   }
+}
+
+/// Les façons de régler une échéance, expliquées une fois.
+class _VoiesDeReglement extends StatelessWidget {
+  const _VoiesDeReglement({
+    required this.echeance,
+    required this.mandatee,
+    required this.envoyerLaQuittance,
+  });
+
+  final Echeance echeance;
+  final bool mandatee;
+  final VoidCallback envoyerLaQuittance;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    Widget voie(IconData icone, String titre, String detail, {Widget? geste}) =>
+        Padding(
+          padding: const EdgeInsets.only(bottom: 16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  icone,
+                  color: theme.colorScheme.onPrimaryContainer,
+                  size: 21,
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(titre, style: theme.textTheme.titleSmall),
+                    const SizedBox(height: 3),
+                    Text(
+                      detail,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                        height: 1.45,
+                      ),
+                    ),
+                    ?geste,
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Comment régler ${_enMinuscule(echeance.titre)} ?',
+            style: theme.textTheme.titleLarge,
+          ),
+          const SizedBox(height: 18),
+          voie(
+            Icons.phone_iphone,
+            'Le cabinet paie pour vous',
+            mandatee
+                ? 'C\'est votre cas pour cette obligation. Le cabinet arrête le montant ; vous le réglez ici par '
+                      'mobile money ; il paie l\'administration et garde la quittance. Rien à photographier.'
+                : 'Vous réglez ici par mobile money, le cabinet paie l\'administration et garde la quittance. '
+                      'Rien à photographier. Le cabinet l\'ouvre sur demande.',
+            geste: mandatee
+                ? null
+                : TextButton.icon(
+                    onPressed: () => joindre(
+                      context,
+                      Cabinet.whatsappLien,
+                      aCopier: Cabinet.whatsapp,
+                    ),
+                    icon: const Icon(Icons.chat_outlined, size: 18),
+                    label: const Text('Le demander au cabinet'),
+                  ),
+          ),
+          voie(
+            Icons.account_balance_outlined,
+            'Vous payez vous-même',
+            'Sur le portail de paiement de l\'administration, ou à son guichet. Puis envoyez la quittance : le '
+                'cabinet la rattache à la déclaration.',
+            geste: TextButton.icon(
+              onPressed: envoyerLaQuittance,
+              icon: const Icon(Icons.photo_camera_outlined, size: 18),
+              label: const Text('Envoyer ma quittance'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Le titre au fil de la phrase : seule l'initiale passe en minuscule, et un
+/// sigle reste un sigle. « Cotisations sociales CNPS » devenait « cotisations
+/// sociales cnps » (19 octobre 2026) ; « TVA du mois » reste « TVA du mois ».
+String _enMinuscule(String titre) {
+  if (titre.length < 2) return titre.toLowerCase();
+  final second = titre[1];
+  if (second.toUpperCase() == second && second.toLowerCase() != second) {
+    return titre;
+  }
+  return titre[0].toLowerCase() + titre.substring(1);
 }

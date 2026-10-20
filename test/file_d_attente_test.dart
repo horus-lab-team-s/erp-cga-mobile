@@ -3,6 +3,7 @@ import 'package:cga_mobile/domaine/depot.dart';
 import 'package:cga_mobile/api/client_api.dart';
 import 'package:cga_mobile/api/remise.dart';
 import 'package:cga_mobile/domaine/file_d_attente.dart';
+import 'package:cga_mobile/domaine/prise_de_vue.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// ─────────────────────────────────────────────────────────────────────────────
@@ -116,26 +117,62 @@ void main() {
     });
   });
 
-  group('Le garde-fou des tentatives', () {
-    test('cesse d\'essayer au-delà de six', () async {
-      final file = FileDAttente(MagasinEnMemoire());
-      await file.ajouter(
-        _depot('A', tentatives: FileDAttente.tentativesMaximales),
-      );
-      var tente = false;
+  group('L\'espacement des essais (19 octobre 2026)', () {
+    test(
+      'ne renonce jamais : au-delà de six essais, la pièce repart encore',
+      () async {
+        final file = FileDAttente(MagasinEnMemoire());
+        await file.ajouter(_depot('A', tentatives: 9));
 
-      await file.vider((_) async {
-        tente = true;
-        return Reponse.accepte;
-      });
+        final vidage = await file.vider((_) async => Reponse.accepte);
 
-      expect(
-        tente,
-        isFalse,
-        reason:
-            "une file qui réessaie sans fin hors réseau vide la batterie en "
-            "une nuit, sans que l'adhérent comprenne pourquoi",
-      );
+        expect(
+          vidage.remis,
+          1,
+          reason:
+              "l'arrêt définitif tombait en trois minutes sans réseau, et la pièce "
+              "ne partait plus jamais alors que l'écran promettait le contraire",
+        );
+      },
+    );
+
+    test(
+      'espace les essais, sauf quand l\'adhérent demande l\'envoi',
+      () async {
+        final file = FileDAttente(MagasinEnMemoire());
+        final midi = DateTime(2026, 10, 19, 12);
+        await file.ajouter(_depot('A'));
+        await file.vider((_) async => Reponse.indisponible, maintenant: midi);
+
+        var tente = false;
+        Future<Reponse> remettre(Depot _) async {
+          tente = true;
+          return Reponse.accepte;
+        }
+
+        await file.vider(
+          remettre,
+          maintenant: midi.add(const Duration(seconds: 10)),
+        );
+        expect(
+          tente,
+          isFalse,
+          reason: 'la batterie et le forfait de l\'adhérent',
+        );
+
+        await file.vider(
+          remettre,
+          maintenant: midi.add(const Duration(seconds: 10)),
+          forcer: true,
+        );
+        expect(tente, isTrue);
+      },
+    );
+
+    test("l'attente croît, puis plafonne à une heure", () {
+      expect(FileDAttente.attenteApres(1), const Duration(seconds: 30));
+      expect(FileDAttente.attenteApres(4), const Duration(minutes: 30));
+      expect(FileDAttente.attenteApres(40), const Duration(hours: 1));
     });
   });
 
@@ -232,6 +269,17 @@ void main() {
       final nom = ClientApi.nomDeLaPhotoPourEssai(DateTime(2026, 1, 5, 9, 7));
 
       expect(nom, 'photo-2026-01-05-0907.jpg');
+    });
+
+    test('un scan garde son extension, et se dit scan', () {
+      final nom = ClientApi.nomDeLaPhotoPourEssai(
+        DateTime(2026, 10, 19, 14, 5),
+        extensionDeLaPiece('/cache/Facture SONEL.PDF'),
+      );
+
+      expect(nom, 'scan-2026-10-19-1405.pdf');
+      expect(extensionDeLaPiece('/x/IMG_0001.jpeg'), 'jpg');
+      expect(extensionDeLaPiece('/x/sans-extension'), 'jpg');
     });
   });
 }

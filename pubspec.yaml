@@ -30,6 +30,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -38,6 +40,13 @@ dependencies:
   image_picker: ^1.2.3
   url_launcher: ^6.3.2
   pdfx: ^2.11.0
+  flutter_secure_storage: ^11.2.0
+  share_plus: ^13.3.1
+  file_picker: ^13.1.0
+  clock: ^1.1.2
+  flutter_local_notifications: ^22.3.2
+  timezone: ^0.11.2
+  package_info_plus: ^10.2.2
 
 dev_dependencies:
   flutter_test:
@@ -67,6 +76,33 @@ flutter:
   assets:
     - assets/marque/
     - assets/photos/
+
+  # 18 octobre 2026 (point 10) : les polices de la marque, celles de la console et de la
+  # vitrine. ⚠️ Jointes à l'application et non chargées au démarrage : aucun appel à un
+  # serveur tiers à l'ouverture, et le texte s'affiche juste sans réseau. Licence libre
+  # SIL OFL 1.1, jointe dans `assets/polices/`. Inter est le sous-ensemble latin : il
+  # couvre le français ; un caractère absent retombe sur la police du système.
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/polices/Inter-Regular.ttf
+          weight: 400
+        - asset: assets/polices/Inter-Medium.ttf
+          weight: 500
+        - asset: assets/polices/Inter-SemiBold.ttf
+          weight: 600
+        - asset: assets/polices/Inter-Bold.ttf
+          weight: 700
+    - family: Poppins
+      fonts:
+        - asset: assets/polices/Poppins-Regular.ttf
+          weight: 400
+        - asset: assets/polices/Poppins-Medium.ttf
+          weight: 500
+        - asset: assets/polices/Poppins-SemiBold.ttf
+          weight: 600
+        - asset: assets/polices/Poppins-Bold.ttf
+          weight: 700
 
   # To add assets to your application, add an assets section, like this:
   # assets:

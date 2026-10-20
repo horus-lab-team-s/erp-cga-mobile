@@ -44,6 +44,18 @@ enum EtatPourLAdherent {
   /// majorations.
   preuveEnvoyee,
 
+  /// Le cabinet a vérifié la quittance : le paiement est acquis. Le dépôt de la
+  /// déclaration reste l'acte du cabinet.
+  payee,
+
+  /// Sous mandat de paiement : les fonds de l'adhérent sont chez le cabinet, qui
+  /// règle l'administration (14 octobre 2026).
+  ///
+  /// ⚠️ 18 OCTOBRE 2026 : CES DEUX ÉTATS ÉTAIENT LUS « À VENIR ». L'adhérent qui
+  /// venait de régler sa CNPS par mobile money la voyait quitter la tête de liste
+  /// et rejoindre les échéances futures, comme si rien n'était fait.
+  fondsRecus,
+
   /// L'échéance n'est pas passée.
   aVenir,
 
@@ -54,6 +66,8 @@ enum EtatPourLAdherent {
   String get libelle => switch (this) {
     EtatPourLAdherent.enRetard => 'En retard',
     EtatPourLAdherent.preuveEnvoyee => 'Le cabinet vérifie votre preuve',
+    EtatPourLAdherent.payee => 'Payée',
+    EtatPourLAdherent.fondsRecus => 'Fonds reçus par le cabinet',
     EtatPourLAdherent.aVenir => 'À venir',
     EtatPourLAdherent.deposee => 'Déposée par le cabinet',
   };
@@ -70,6 +84,8 @@ enum EtatPourLAdherent {
   static EtatPourLAdherent depuisLeServeur(String? nom) => switch (nom) {
     'EN_RETARD' => EtatPourLAdherent.enRetard,
     'PREUVE_ENVOYEE' => EtatPourLAdherent.preuveEnvoyee,
+    'PAYEE' => EtatPourLAdherent.payee,
+    'FONDS_RECUS' => EtatPourLAdherent.fondsRecus,
     'A_VENIR' => EtatPourLAdherent.aVenir,
     'DEPOSEE' => EtatPourLAdherent.deposee,
     _ => EtatPourLAdherent.aVenir,
@@ -153,7 +169,15 @@ class Echeance {
     prochaineEcheance: _date(json['prochaine_echeance']),
     // ⚠️ `num` et non `double` : un montant rond arrive en entier. Même piège
     // que sur les pièces remises, et il tombait sur la moitié des lignes.
-    montantEstime: (json['montant_estime'] as num?)?.toDouble(),
+    //
+    // ⚠️ 18 octobre 2026 : ET UNE CHAÎNE AUSSI. Le serveur rend un `Decimal` en
+    // texte (« 191962.00 ») ; le champ était toujours vide jusqu'à ce que l'arrêté
+    // des charges le remplisse, et la lecture aurait alors levé sur chaque ligne.
+    montantEstime: switch (json['montant_estime']) {
+      final num n => n.toDouble(),
+      final String t => double.tryParse(t),
+      _ => null,
+    },
   );
 }
 
@@ -168,11 +192,22 @@ class Echeancier {
     this.echeances = const [],
     this.serveurJoignable = true,
     this.sessionAExpire = false,
+    this.serveurEnPanne = false,
+    this.copieDu,
   });
 
   final List<Echeance> echeances;
   final bool serveurJoignable;
   final bool sessionAExpire;
+
+  /// 20 octobre 2026 : le téléphone a du réseau, mais le serveur n'a pas répondu
+  /// comme il faut. Faux avec `serveurJoignable` faux : c'est le réseau qui manque.
+  final bool serveurEnPanne;
+
+  /// Non nul : le réseau a manqué, et ce qui s'affiche est la dernière lecture
+  /// gardée sur l'appareil, de cet instant-là. ⚠️ `serveurJoignable` reste vrai :
+  /// le contenu est lisible ; c'est cette date qui dit qu'il peut avoir vieilli.
+  final DateTime? copieDu;
 
   /// Ce qui demande un geste de l'adhérent, maintenant.
   int get enRetard => echeances.where((e) => e.etat.demandeUnGeste).length;

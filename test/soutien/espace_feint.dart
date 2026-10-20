@@ -1,0 +1,152 @@
+import 'dart:typed_data';
+
+import 'package:cga_mobile/domaine/fonds_confies.dart';
+import 'package:cga_mobile/domaine/honoraires.dart';
+import 'package:cga_mobile/domaine/ma_dsf.dart';
+import 'package:cga_mobile/domaine/ma_paie.dart';
+import 'package:cga_mobile/ports/service_de_l_espace.dart';
+import 'package:cga_mobile/ports/service_des_fichiers.dart';
+
+/// Une doublure de l'espace adhérent : chaque réponse se règle par le test.
+class EspaceFeint implements ServiceDeLEspace {
+  EspaceFeint({
+    this.honoraires,
+    this.dsf,
+    this.paie,
+    this.debit = const DemandeDeDebit(sort: SortDuDebit.envoyee, simule: true),
+    this.versement = SortDuVersement.recue,
+    this.fonds = FondsConfies.aucun,
+  });
+
+  MesHonoraires? honoraires;
+  MaDsf? dsf;
+  MaPaie? paie;
+
+  /// 20 octobre 2026 : non nul, chaque lecture rend une COPIE gardée de cet
+  /// instant, comme `ClientApi` quand le réseau manque.
+  DateTime? copieDu;
+
+  /// Vrai : une lecture qui échoue dit « le cabinet ne répond pas ».
+  bool serveurEnPanne = false;
+
+  Lecture<T> _lecture<T>(T? valeur) => valeur == null
+      ? Lecture.injoignable(serveurEnPanne: serveurEnPanne)
+      : Lecture.lue(valeur, copieDu: copieDu);
+  DemandeDeDebit debit;
+  SortDuVersement versement;
+
+  final List<String> debitsDemandes = [];
+  final List<String> versements = [];
+  final List<String> documentsLus = [];
+  int lecturesDHonoraires = 0;
+
+  @override
+  Future<Lecture<MesHonoraires>> mesHonoraires(String dossier) async {
+    lecturesDHonoraires++;
+    return _lecture(honoraires);
+  }
+
+  @override
+  Future<DemandeDeDebit> demanderLeDebit({
+    required String dossier,
+    required String periode,
+    required String telephone,
+  }) async {
+    debitsDemandes.add('$periode:$telephone');
+    return debit;
+  }
+
+  @override
+  Future<Lecture<MaDsf>> maDsf(String dossier) async {
+    return _lecture(dsf);
+  }
+
+  @override
+  Future<SortDuVersement> verserUnePieceDsf({
+    required String dossier,
+    required String exercice,
+    required int numero,
+    required String cheminDuFichier,
+  }) async {
+    versements.add('$exercice/$numero');
+    return versement;
+  }
+
+  @override
+  Future<Lecture<MaPaie>> maPaie(
+    String dossier, {
+    required int annee,
+    required int mois,
+  }) async {
+    return _lecture(paie);
+  }
+
+  FondsConfies? fonds;
+  final List<String> fondsConfies = [];
+
+  @override
+  Future<Lecture<FondsConfies>> mesFondsConfies(String dossier) async {
+    final f = fonds;
+    return f == null ? const Lecture.injoignable() : Lecture.lue(f);
+  }
+
+  @override
+  Future<DemandeDeDebit> confierSesFonds({
+    required String dossier,
+    required String appel,
+    required String telephone,
+  }) async {
+    fondsConfies.add('$appel:$telephone');
+    return debit;
+  }
+
+  @override
+  Future<FichierLu> lireUnDocument(String chemin) async {
+    documentsLus.add(chemin);
+    return FichierLu(octets: Uint8List(0), type: 'application/pdf');
+  }
+}
+
+/// Deux périodes : août réglée, septembre en retard.
+///
+/// [septembreReglee] : l'opérateur a confirmé le paiement de septembre.
+MesHonoraires honorairesDEssai({
+  bool factureDisponible = false,
+  bool septembreReglee = false,
+}) => MesHonoraires.depuis({
+  'contrat': {'montant': '45000', 'periodicite': 'MENSUELLE'},
+  'echeances': [
+    {
+      'debut': '2026-08-01',
+      'fin': '2026-08-31',
+      'exigible_le': '2026-08-13',
+      'montant': '45000',
+      'etat': 'REGLEE',
+      'reglement': {
+        'identifiant': 'RH-1',
+        'constate_le': '2026-08-13T10:00:00',
+        'canal': 'GUICHET',
+        'reference_externe': 'Reçu de caisse 2026-0105',
+      },
+    },
+    {
+      'debut': '2026-09-01',
+      'fin': '2026-09-30',
+      'exigible_le': '2026-09-13',
+      'montant': '45000',
+      'etat': septembreReglee ? 'REGLEE' : 'EN_RETARD',
+      if (septembreReglee)
+        'reglement': {
+          'identifiant': 'RH-2',
+          'constate_le': '2026-10-20T09:00:00',
+          'canal': 'MOBILE_MONEY',
+          'reference_externe': 'MM-1',
+        },
+    },
+  ],
+  'du': septembreReglee ? '0' : '45000',
+  'en_retard': septembreReglee ? 0 : 1,
+  'reglable_en_ligne': true,
+  'situation': {'etat': 'EN_RETARD'},
+  'facture_disponible': factureDisponible,
+});

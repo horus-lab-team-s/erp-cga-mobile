@@ -2,7 +2,9 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:pdfx/pdfx.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../marque.dart';
 import '../ports/service_des_fichiers.dart';
@@ -115,6 +117,35 @@ class _EtatDeLaVisionneuse extends State<EcranVisionneuse> {
     setState(() => _fichier = lu);
   }
 
+  /// Le document en fichier temporaire, confié à la feuille de partage du système.
+  Future<void> _partager(FichierLu fichier) async {
+    try {
+      final extension = fichier.estUnPdf
+          ? 'pdf'
+          : (fichier.type?.contains('png') ?? false)
+          ? 'png'
+          : 'jpg';
+      final nom = widget.titre
+          .replaceAll(RegExp(r'[^A-Za-z0-9À-ÿ _.-]'), '')
+          .trim()
+          .replaceAll(' ', '-');
+      final dossier = await getTemporaryDirectory();
+      final chemin =
+          '${dossier.path}/${nom.isEmpty ? 'document' : nom}.$extension';
+      await File(chemin).writeAsBytes(fichier.octets!);
+      await SharePlus.instance.share(
+        ShareParams(files: [XFile(chemin)], subject: widget.titre),
+      );
+    } on Object {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Ce téléphone n'a pas pu partager le document."),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final f = _fichier;
@@ -124,6 +155,17 @@ class _EtatDeLaVisionneuse extends State<EcranVisionneuse> {
       backgroundColor: Marque.indigo900,
       appBar: AppBar(
         title: Text(widget.titre, overflow: TextOverflow.ellipsis),
+        actions: [
+          // 19 octobre 2026 : le document se lisait, mais ne sortait pas du téléphone.
+          // L'adhérent le transmet à son banquier, l'enregistre, l'imprime.
+          if (f?.octets != null)
+            IconButton(
+              key: const Key('partager-le-document'),
+              tooltip: 'Partager',
+              icon: const Icon(Icons.share_outlined),
+              onPressed: () => _partager(f!),
+            ),
+        ],
       ),
       body: switch (f) {
         null => const Center(
