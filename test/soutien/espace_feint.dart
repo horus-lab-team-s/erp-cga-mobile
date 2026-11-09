@@ -113,6 +113,7 @@ class EspaceFeint implements ServiceDeLEspace {
 MesHonoraires honorairesDEssai({
   bool factureDisponible = false,
   bool septembreReglee = false,
+  String accesClient = 'OUVERT',
 }) => MesHonoraires.depuis({
   'contrat': {'montant': '45000', 'periodicite': 'MENSUELLE'},
   'echeances': [
@@ -147,6 +148,10 @@ MesHonoraires honorairesDEssai({
   'du': septembreReglee ? '0' : '45000',
   'en_retard': septembreReglee ? 0 : 1,
   'reglable_en_ligne': true,
-  'situation': {'etat': 'EN_RETARD'},
+  'situation': {
+    'etat': 'EN_RETARD',
+    'acces_client': accesClient,
+    'acces_suspendu_le': '2026-12-01',
+  },
   'facture_disponible': factureDisponible,
 });

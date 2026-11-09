@@ -189,4 +189,26 @@ void main() {
     expect(find.text('Pas de réseau'), findsOneWidget);
     expect(find.text('Réessayer'), findsOneWidget);
   });
+
+  // Réunion du 4 novembre 2026 : trois mois d'impayés suspendent l'espace.
+  testWidgets('Le préavis puis la suspension de l\'espace se lisent', (
+    testeur,
+  ) async {
+    await poser(testeur, EspaceFeint(honoraires: honorairesDEssai()));
+    expect(find.textContaining('Votre espace sera suspendu'), findsNothing);
+
+    await poser(
+      testeur,
+      EspaceFeint(honoraires: honorairesDEssai(accesClient: 'AVERTI')),
+    );
+    expect(find.textContaining('Votre espace sera suspendu le'), findsOneWidget);
+
+    await poser(
+      testeur,
+      EspaceFeint(honoraires: honorairesDEssai(accesClient: 'SUSPENDU')),
+    );
+    expect(find.text('Votre espace est suspendu'), findsOneWidget);
+    // Les honoraires restent réglables : c'est ce qui rouvre l'espace.
+    expect(find.byKey(const Key('payer-2026-09-01')), findsOneWidget);
+  });
 }

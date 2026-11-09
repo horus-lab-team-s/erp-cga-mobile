@@ -128,6 +128,22 @@ enum SituationDeReglement {
   };
 }
 
+/// Réunion du 4 novembre 2026 : l'accès du client à son espace, distinct du
+/// traitement. Trois mois après l'échéance impayée la plus ancienne, il se
+/// suspend ; quinze jours avant, le client en est averti. Suspendu, il ne garde
+/// que ses honoraires : les lire et les régler. Le serveur refuse le reste (423).
+enum AccesDuClient {
+  ouvert,
+  averti,
+  suspendu;
+
+  static AccesDuClient depuisLeServeur(String? nom) => switch (nom) {
+    'AVERTI' => AccesDuClient.averti,
+    'SUSPENDU' => AccesDuClient.suspendu,
+    _ => AccesDuClient.ouvert,
+  };
+}
+
 class MesHonoraires {
   const MesHonoraires({
     required this.periodes,
@@ -138,6 +154,8 @@ class MesHonoraires {
     required this.factureDisponible,
     this.montantParPeriode,
     this.periodicite,
+    this.acces = AccesDuClient.ouvert,
+    this.accesSuspenduLe,
   });
 
   /// Aucun contrat : l'écran le dit au lieu de montrer une liste vide.
@@ -161,6 +179,10 @@ class MesHonoraires {
   final bool factureDisponible;
   final int? montantParPeriode;
   final String? periodicite;
+  final AccesDuClient acces;
+
+  /// Le jour où l'espace se suspend, ou s'est suspendu.
+  final DateTime? accesSuspenduLe;
 
   bool get aUnContrat => montantParPeriode != null;
 
@@ -195,6 +217,12 @@ class MesHonoraires {
       factureDisponible: json['facture_disponible'] == true,
       montantParPeriode: double.parse('${contrat['montant']}').round(),
       periodicite: contrat['periodicite'] as String?,
+      acces: situation is Map<String, dynamic>
+          ? AccesDuClient.depuisLeServeur(situation['acces_client'] as String?)
+          : AccesDuClient.ouvert,
+      accesSuspenduLe: situation is Map<String, dynamic>
+          ? DateTime.tryParse('${situation['acces_suspendu_le'] ?? ''}')
+          : null,
     );
   }
 }

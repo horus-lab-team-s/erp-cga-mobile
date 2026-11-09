@@ -222,6 +222,22 @@ class _Contenu extends StatelessWidget {
               : Icons.verified_outlined,
           grave: grave,
         ),
+        // Réunion du 4 novembre 2026 : l'espace suspendu après trois mois
+        // d'impayés, et le préavis qui l'annonce.
+        if (h.acces != AccesDuClient.ouvert && h.accesSuspenduLe != null) ...[
+          const SizedBox(height: Marque.espace3),
+          Chapeau(
+            titre: h.acces == AccesDuClient.suspendu
+                ? 'Votre espace est suspendu'
+                : 'Votre espace sera suspendu le ${jourLong(h.accesSuspenduLe!)}',
+            detail: h.acces == AccesDuClient.suspendu
+                ? 'Depuis le ${jourLong(h.accesSuspenduLe!)}, seuls vos honoraires restent accessibles. '
+                    'Le cabinet continue de suivre votre dossier ; votre espace se rouvre dès le règlement.'
+                : 'Réglez vos honoraires dus avant cette date pour garder l\'accès à votre espace.',
+            icone: Icons.lock_outline,
+            grave: true,
+          ),
+        ],
         if (h.dues.isNotEmpty) ...[
           const SizedBox(height: 24),
           const TitreDeSection('À régler'),
