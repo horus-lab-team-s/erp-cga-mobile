@@ -227,10 +227,12 @@ class _EtatDeLaSouscription extends State<EcranSouscrire> {
                           return 'Le NIU est nécessaire pour ouvrir votre '
                               'dossier';
                         }
-                        if (n.length < 10 ||
-                            !RegExp(r'^[A-Za-z0-9]+$').hasMatch(n)) {
-                          return 'Un NIU compte au moins dix lettres et '
-                              'chiffres';
+                        // 21 novembre 2026 : la forme exacte du référentiel
+                        // (FORMAT_NIU), que le serveur exige aussi.
+                        if (!RegExp(r'^[A-Za-z][0-9]{12}[A-Za-z]$')
+                            .hasMatch(n)) {
+                          return 'Un NIU compte une lettre, douze chiffres, '
+                              'une lettre (exemple : M112600090017R)';
                         }
                         return null;
                       },
