@@ -188,11 +188,16 @@ class Fiche {
     this.entreprise,
     this.serveurJoignable = true,
     this.sessionAExpire = false,
+    this.serveurEnPanne = false,
   });
 
   final MonEntreprise? entreprise;
   final bool serveurJoignable;
   final bool sessionAExpire;
+
+  /// 20 octobre 2026 : le téléphone a du réseau, mais le serveur n'a pas répondu
+  /// comme il faut. Faux avec `serveurJoignable` faux : c'est le réseau qui manque.
+  final bool serveurEnPanne;
 }
 
 /// Ce qu'un signalement a produit.

@@ -16,6 +16,8 @@
 /// ─────────────────────────────────────────────────────────────────────────────
 library;
 
+import 'connaissance_de_la_piece.dart';
+
 /// Où en est un dépôt dans son voyage vers le serveur.
 enum EtatDuDepot {
   /// Enregistré sur l'appareil, pas encore parti.
@@ -43,6 +45,9 @@ class Depot {
     this.etat = EtatDuDepot.enAttente,
     this.tentatives = 0,
     this.motifDuRefus,
+    this.dernierEssaiLe,
+    this.connaissance,
+    this.demande,
   });
 
   /// Engendré sur l'appareil. ⚠️ Il ne sert qu'ICI, à retrouver le dépôt dans la
@@ -85,7 +90,29 @@ class Depot {
   /// reprendre.
   final String? motifDuRefus;
 
-  Depot avec({EtatDuDepot? etat, int? tentatives, String? motifDuRefus}) {
+  /// L'instant du dernier essai manqué : la file attend d'autant plus longtemps
+  /// avant le suivant que les essais se sont accumulés (19 octobre 2026).
+  final DateTime? dernierEssaiLe;
+
+  /// Ce que l'adhérent a dit de la pièce avant de l'envoyer, s'il l'a dit.
+  final ConnaissanceDeLaPiece? connaissance;
+
+  /// La demande du cabinet à laquelle la pièce répond (« DP-2026-002 »), quand le
+  /// dépôt part de sa carte sur l'accueil (20 octobre 2026).
+  ///
+  /// ⚠️ GARDÉE SUR LE TÉLÉPHONE, PAS ENVOYÉE. La route de dépôt refuse tout champ
+  /// qu'elle ne connaît pas (`extra="forbid"`), et elle ne connaît pas la demande :
+  /// l'envoyer ferait refuser la pièce entière. La file s'en sert pour dire, sur
+  /// la vignette, à quoi la pièce répond ; le jour où le serveur l'acceptera,
+  /// `Remise` n'aura qu'à la joindre.
+  final String? demande;
+
+  Depot avec({
+    EtatDuDepot? etat,
+    int? tentatives,
+    String? motifDuRefus,
+    DateTime? dernierEssaiLe,
+  }) {
     return Depot(
       identifiant: identifiant,
       dossier: dossier,
@@ -94,6 +121,9 @@ class Depot {
       etat: etat ?? this.etat,
       tentatives: tentatives ?? this.tentatives,
       motifDuRefus: motifDuRefus ?? this.motifDuRefus,
+      dernierEssaiLe: dernierEssaiLe ?? this.dernierEssaiLe,
+      connaissance: connaissance,
+      demande: demande,
     );
   }
 
@@ -105,6 +135,10 @@ class Depot {
     'etat': etat.name,
     'tentatives': tentatives,
     if (motifDuRefus != null) 'motif_du_refus': motifDuRefus,
+    if (dernierEssaiLe != null)
+      'dernier_essai_le': dernierEssaiLe!.toIso8601String(),
+    if (connaissance != null) 'connaissance': connaissance!.versJson(),
+    if (demande != null) 'demande': demande,
   };
 
   static Depot depuisJson(Map<String, dynamic> json) => Depot(
@@ -115,5 +149,14 @@ class Depot {
     etat: EtatDuDepot.values.byName(json['etat'] as String),
     tentatives: json['tentatives'] as int? ?? 0,
     motifDuRefus: json['motif_du_refus'] as String?,
+    dernierEssaiLe: json['dernier_essai_le'] == null
+        ? null
+        : DateTime.parse(json['dernier_essai_le'] as String),
+    connaissance: json['connaissance'] is Map<String, dynamic>
+        ? ConnaissanceDeLaPiece.depuisJson(
+            json['connaissance'] as Map<String, dynamic>,
+          )
+        : null,
+    demande: json['demande'] as String?,
   );
 }

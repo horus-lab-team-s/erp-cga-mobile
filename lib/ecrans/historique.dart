@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../composants/actions.dart';
 import '../composants/carte.dart';
 import '../composants/champ_de_recherche.dart';
+import '../composants/etat.dart';
+import '../domaine/fraicheur.dart';
 import '../domaine/recherche.dart';
 import '../domaine/piece_remise.dart';
 import '../ports/service_de_session.dart';
@@ -33,7 +36,7 @@ class EcranHistorique extends StatefulWidget {
   const EcranHistorique({
     super.key,
     required this.session,
-    required this.dossiers,
+    required this.dossier,
     required this.quandSessionExpire,
     this.fichiers,
   });
@@ -44,10 +47,13 @@ class EcranHistorique extends StatefulWidget {
   /// touchent pas.
   final ServiceDesFichiers? fichiers;
 
-  /// Les dossiers du compte. ⚠️ Passés par l'accueil, qui les a déjà lus : les
-  /// relire ici ferait un deuxième aller-retour pour la même réponse, sur un
-  /// réseau qu'on sait mauvais.
-  final List<String> dossiers;
+  /// Le dossier choisi dans l'en-tête de l'accueil. ⚠️ Passé par la coquille, qui
+  /// a déjà lu les dossiers : les relire ici ferait un deuxième aller-retour pour
+  /// la même réponse, sur un réseau qu'on sait mauvais.
+  ///
+  /// ⚠️ 20 octobre 2026 : l'écran avait son propre sélecteur. Un seul choix vaut
+  /// désormais pour toute l'application, celui de l'en-tête.
+  final String dossier;
 
   /// Appelé quand le serveur répond que la session n'est plus valable. L'écran
   /// ne décide pas lui-même de renvoyer à la connexion : c'est l'affaire de
@@ -73,6 +79,10 @@ class EcranHistorique extends StatefulWidget {
 ///
 /// Le geste de tirer vers le bas existe, mais il suppose qu'on se DOUTE que la
 /// liste a vieilli. Personne ne s'en doute.
+///
+/// ⚠️ 20 octobre 2026 : au retour, seulement si la dernière lecture a plus de cinq
+/// minutes (voir `Fraicheur`). L'aller-retour vers WhatsApp le temps d'une photo
+/// ne mérite pas une relecture ; celui d'un appel au cabinet, si.
 class _EtatDeLHistorique extends State<EcranHistorique>
     with WidgetsBindingObserver {
   /// Ce qui est tapé dans le champ de recherche. ⚠️ Tenu par l'écran : la
@@ -81,7 +91,8 @@ class _EtatDeLHistorique extends State<EcranHistorique>
 
   Historique? _historique;
   bool _lectureEnCours = true;
-  late String _dossier = widget.dossiers.first;
+  String get _dossier => widget.dossier;
+  final _fraicheur = Fraicheur();
 
   /// Ouvre le document de la pièce, tel que le serveur le conserve. `null`
   /// quand l'écran n'a pas de quoi lire les fichiers.
@@ -121,7 +132,7 @@ class _EtatDeLHistorique extends State<EcranHistorique>
     // déroulé du volet de notifications passe par `inactive` : relire à chaque
     // fois ferait des appels que rien ne justifie, sur un forfait que l'adhérent
     // paie.
-    if (etat == AppLifecycleState.resumed) {
+    if (etat == AppLifecycleState.resumed && _fraicheur.perimee) {
       _relire();
     }
   }
@@ -139,36 +150,16 @@ class _EtatDeLHistorique extends State<EcranHistorique>
     if (lu.sessionAExpire) {
       widget.quandSessionExpire();
     }
+    if (lu.serveurJoignable) _fraicheur.marquer();
   }
 
   @override
   Widget build(BuildContext context) {
     final historique = _historique;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Pièces remises'),
-        actions: [
-          // ⚠️ Le sélecteur ne paraît QUE si le compte a plusieurs dossiers.
-          // Une liste déroulante à un seul choix est un bouton qui ne fait
-          // rien : elle occupe la barre et apprend à l'adhérent à la toucher
-          // pour rien.
-          if (widget.dossiers.length > 1)
-            PopupMenuButton<String>(
-              key: const Key('choix-dossier'),
-              initialValue: _dossier,
-              tooltip: 'Changer de dossier',
-              icon: const Icon(Icons.folder_outlined),
-              onSelected: (dossier) {
-                setState(() => _dossier = dossier);
-                _relire();
-              },
-              itemBuilder: (_) => [
-                for (final dossier in widget.dossiers)
-                  PopupMenuItem(value: dossier, child: Text(dossier)),
-              ],
-            ),
-        ],
-      ),
+      // 20 octobre 2026 : un seul nom pour cet écran, partout : « Mes pièces
+      // envoyées », comme l'entrée de « Mon espace » qui y mène.
+      appBar: AppBar(title: const Text('Mes pièces envoyées')),
       body: RefreshIndicator(
         onRefresh: _relire,
         child: switch ((_lectureEnCours, historique)) {
@@ -177,28 +168,24 @@ class _EtatDeLHistorique extends State<EcranHistorique>
           // la remplacer par un écran vide donnerait l'impression, une seconde,
           // que l'historique a disparu.
           (true, null) => const _EnAttente(),
-          (_, null) => const _RienDuTout(
-            titre: 'Historique indisponible',
-            detail: 'Le serveur n\'a pas répondu.',
-            icone: Icons.cloud_off_outlined,
-          ),
-          (_, final Historique h) when h.sessionAExpire => const _RienDuTout(
+          (_, null) => EtatDePanne(serveurEnPanne: true, reessayer: _relire),
+          (_, final Historique h) when h.sessionAExpire => const EtatVide(
             titre: 'Session expirée',
             detail:
                 'Reconnectez-vous pour consulter les pièces que le cabinet détient.',
             icone: Icons.lock_outline,
           ),
-          (_, final Historique h) when !h.serveurJoignable => const _RienDuTout(
+          (_, final Historique h) when !h.serveurJoignable => EtatDePanne(
             // ⚠️ « Le réseau manque », et surtout PAS « aucune pièce ». Voir
             // l'en-tête de `Historique` : la confusion entre les deux afficherait
             // un dossier vide à quelqu'un qui a tout déposé.
-            titre: 'Pas de réseau',
-            detail:
-                'Vos pièces remises sont chez le cabinet ; cette liste se lit '
+            serveurEnPanne: h.serveurEnPanne,
+            horsLigne:
+                'Vos pièces envoyées sont chez le cabinet ; cette liste se lit '
                 'sur le serveur. Elle reparaîtra dès que la connexion revient.',
-            icone: Icons.wifi_off_outlined,
+            reessayer: _relire,
           ),
-          (_, final Historique h) when h.pieces.isEmpty => const _RienDuTout(
+          (_, final Historique h) when h.pieces.isEmpty => const EtatVide(
             titre: 'Aucune pièce remise',
             detail:
                 'Les justificatifs que vous photographiez apparaîtront ici une '
@@ -510,52 +497,6 @@ class _EnAttente extends StatelessWidget {
     key: Key('historique-en-attente'),
     child: CircularProgressIndicator(),
   );
-}
-
-/// Un état vide qui DIT POURQUOI. Jamais une liste vide muette : voir l'en-tête
-/// de `Historique`.
-class _RienDuTout extends StatelessWidget {
-  const _RienDuTout({
-    required this.titre,
-    required this.detail,
-    required this.icone,
-  });
-
-  final String titre;
-  final String detail;
-  final IconData icone;
-
-  @override
-  Widget build(BuildContext context) {
-    final couleurs = Theme.of(context).colorScheme;
-    // ⚠️ `ListView` et non `Center` : le geste de tirer pour rafraîchir ne
-    // fonctionne que sur une zone qui défile. Avec un `Center`, l'adhérent sans
-    // réseau se retrouvait devant un message qu'aucun geste ne pouvait relancer.
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(32, 90, 32, 32),
-      children: [
-        Icon(icone, size: 44, color: couleurs.onSurfaceVariant),
-        const SizedBox(height: 18),
-        Text(
-          titre,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: couleurs.onSurface,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          detail,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: couleurs.onSurfaceVariant,
-            height: 1.5,
-          ),
-        ),
-      ],
-    );
-  }
 }
 
 const _moisEnFrancais = [

@@ -1,11 +1,19 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:clock/clock.dart';
+
 import 'package:flutter/foundation.dart';
 
+import '../domaine/connaissance_de_la_piece.dart';
 import '../domaine/document_recu.dart';
 import '../domaine/echeance.dart';
 import '../domaine/file_d_attente.dart';
+import '../domaine/fonds_confies.dart';
+import '../domaine/honoraires.dart';
+import '../domaine/ma_dsf.dart';
+import '../domaine/ma_paie.dart';
 import '../domaine/mon_entreprise.dart';
 import '../domaine/mon_mois.dart';
 import '../domaine/offre.dart';
@@ -14,6 +22,9 @@ import '../domaine/souscription.dart';
 import '../domaine/suivi.dart';
 import '../domaine/vitrine.dart';
 import '../domaine/preuve.dart';
+import '../ports/coffre_de_session.dart';
+import '../ports/memoire_des_lectures.dart';
+import '../ports/service_de_l_espace.dart';
 import '../ports/service_de_session.dart';
 import '../ports/service_des_fichiers.dart';
 import '../ports/service_du_tableau_de_bord.dart';
@@ -44,9 +55,24 @@ class ClientApi
         ServiceDeSession,
         ServicePublic,
         ServiceDuTableauDeBord,
-        ServiceDesFichiers {
-  ClientApi({required this.base, Uri? vitrine})
-    : vitrine = vitrine ?? Uri.parse(adresseDeLaVitrineParDefaut);
+        ServiceDesFichiers,
+        ServiceDeLEspace {
+  ClientApi({required this.base, Uri? vitrine, this.coffre})
+    : vitrine = vitrine ?? Uri.parse(adresseDeLaVitrineParDefaut) {
+    exigerHttps(base);
+  }
+
+  /// ⚠️ 19 octobre 2026 (audit de sécurité) : l'adresse du serveur venait de
+  /// `--dart-define`, et rien n'empêchait de publier une version qui parle en clair.
+  /// `dart:io` ne lit pas la configuration réseau d'Android : seul ce contrôle
+  /// garantit qu'une version publiée n'envoie ni mot de passe ni session en clair.
+  static void exigerHttps(Uri adresse, {bool enPublication = kReleaseMode}) {
+    if (enPublication && adresse.scheme != 'https') {
+      throw StateError(
+        'Version publiée : l\'adresse du serveur doit être en https ($adresse).',
+      );
+    }
+  }
 
   /// L'adresse du site public, d'où viennent les images des articles et les
   /// logos des institutions.
@@ -86,10 +112,39 @@ class ClientApi
 
   final Uri base;
 
-  /// Le cookie de session, tel que le serveur l'a posé. ⚠️ Gardé en mémoire
-  /// seulement : l'écrire sur le disque demanderait le magasin protégé du
-  /// système, et le faire à moitié vaut moins que ne pas le faire.
+  /// Le cookie de session, tel que le serveur l'a posé. ⚠️ En mémoire, et dans
+  /// le coffre du système quand il y en a un ([coffre]) : jamais dans un fichier.
   String? _session;
+
+  /// Le coffre où la session survit à la fermeture de l'application (19 octobre 2026).
+  final CoffreDeSession? coffre;
+
+  /// Reprend la session gardée au coffre, et la confronte au serveur.
+  ///
+  /// ⚠️ Une session que le serveur refuse (expirée, révoquée) est effacée : on ne
+  /// garde pas un jeton qui ne vaut plus. Sans réseau, on la garde et on entre :
+  /// l'adhérent dépose hors ligne, et la file la présentera au retour du réseau.
+  Future<bool> reprendreLaSession() async {
+    final gardee = await coffre?.lire();
+    if (gardee == null) return false;
+    _session = gardee;
+    try {
+      final moi = await lire('/transverse/moi');
+      if (moi is Map<String, dynamic>) return true;
+    } on Object {
+      return true;
+    }
+    await oublierLaSession();
+    return false;
+  }
+
+  /// Oublie la session ici, sans appeler le serveur : elle a expiré, ou il refuse.
+  Future<void> oublierLaSession() async {
+    _session = null;
+    await coffre?.effacer();
+    // 20 octobre 2026 : les copies hors ligne partent avec la session.
+    await memoireDesLectures?.oublierTout();
+  }
 
   bool get connecte => _session != null;
 
@@ -114,6 +169,7 @@ class ClientApi
       return false;
     }
     _session = '${cookies.first.name}=${cookies.first.value}';
+    await coffre?.ecrire(_session!);
     return true;
   }
 
@@ -135,6 +191,10 @@ class ClientApi
       // Sans réseau, la session expirera d'elle-même côté serveur.
     } finally {
       _session = null;
+      await coffre?.effacer();
+      // ⚠️ 20 octobre 2026 : le téléphone d'une boutique passe de main en main ; les
+      // chiffres gardés pour la lecture hors ligne ne survivent pas à la session.
+      await memoireDesLectures?.oublierTout();
     }
   }
 
@@ -204,6 +264,8 @@ class ClientApi
     required String entreprise,
     required String empreinte,
     required DateTime prisLe,
+    ConnaissanceDeLaPiece? connaissance,
+    String extension = 'jpg',
   }) async {
     final requete = await _client.postUrl(base.resolve('/collecte/pieces'));
     _poserLaSession(requete);
@@ -223,7 +285,7 @@ class ClientApi
         // Le nom que rend l'appareil photo ne vaut rien non plus : c'est un
         // identifiant technique du sélecteur d'images. On pose donc la date et
         // l'heure de la PRISE DE VUE, qui situent la pièce sans rien inventer.
-        'nom_fichier': _nomDeLaPhoto(prisLe),
+        'nom_fichier': _nomDeLaPhoto(prisLe, extension),
         // ⚠️ La date de la PRISE DE VUE, pas celle de la remise. C'est elle que
         // la comptabilité retient : prendre celle de la remise ferait glisser au
         // mois suivant toute pièce photographiée le 31 au soir sans réseau.
@@ -232,6 +294,8 @@ class ClientApi
         // ce n'est plus un dépôt mais une reprise d'historique, et il répond 422
         // — un refus, à juste titre.
         'depose_le': prisLe.toIso8601String().split('T').first,
+        // 19 octobre 2026 : ce que l'adhérent a dit de sa pièce, s'il l'a dit.
+        ...?connaissance?.versLaRemise(),
       }),
     );
     final reponse = await requete.close();
@@ -273,7 +337,10 @@ class ClientApi
   Future<List<String>> mesDossiers() async {
     final moi = await lire('/transverse/moi');
     if (moi is! Map<String, dynamic>) {
-      return const [];
+      // ⚠️ 19 octobre 2026 : une panne n'est pas une absence de dossier. Rendre une
+      // liste vide affichait « Aucun dossier à votre nom » à qui n'avait que perdu
+      // le réseau, sans rien pour réessayer.
+      throw const HttpException('dossiers illisibles');
     }
     final dossiers = moi['dossiers'];
     if (dossiers is! List) {
@@ -300,51 +367,36 @@ class ClientApi
   /// porte — comme [Vidage] le fait pour la file d'attente.
   /// ─────────────────────────────────────────────────────────────────────────
   @override
-  Future<Historique> mesPieces(String dossier) async {
-    try {
-      // ⚠️ `a_la_date` est EXIGÉ par la route : c'est la date de référence dont
-      // le serveur se sert pour calculer anciennetés et retards. On envoie le
-      // jour de l'appareil, qui est aussi celui que l'adhérent a sous les yeux.
-      final aujourdHui = DateTime.now().toIso8601String().split('T').first;
-      final requete = await _client.getUrl(
-        base.resolve(
-          '/collecte/pieces?entreprise=$dossier&a_la_date=$aujourdHui',
-        ),
-      );
-      _poserLaSession(requete);
-      final reponse = await requete.close();
-      final corps = await reponse.transform(utf8.decoder).join();
-      if (reponse.statusCode == HttpStatus.unauthorized) {
-        return const Historique(sessionAExpire: true);
-      }
-      if (reponse.statusCode != HttpStatus.ok) {
-        // ⚠️ Un 404 arrive ici quand le dossier sort du périmètre du compte —
-        // le serveur répond « ce dossier n'existe pas » plutôt que « vous n'y
-        // avez pas droit », et il a raison de ne pas renseigner un curieux sur
-        // l'existence des dossiers des autres. Vu d'ici, c'est un serveur qui
-        // n'a pas répondu, et l'écran le dira ainsi.
-        return const Historique(serveurJoignable: false);
-      }
-      final lignes = jsonDecode(corps);
-      if (lignes is! List) {
-        return const Historique(serveurJoignable: false);
-      }
-      final pieces = [
-        for (final ligne in lignes)
-          PieceRemise.depuisJson(ligne as Map<String, dynamic>),
-      ];
-      // ⚠️ LA PLUS RÉCENTE EN HAUT, à l'inverse de la file d'attente.
-      //
-      // La file part dans l'ordre de la prise de vue, parce que c'est la
-      // chronologie que le comptable doit voir arriver. Un historique se lit
-      // dans l'autre sens : on y cherche ce qu'on vient de faire, pas ce qu'on
-      // a fait il y a six mois.
-      pieces.sort((a, b) => b.deposeLe.compareTo(a.deposeLe));
-      return Historique(pieces: pieces);
-    } on Object {
-      // Pas de réseau, serveur injoignable, délai dépassé, corps illisible.
-      return const Historique(serveurJoignable: false);
-    }
+  Future<Historique> mesPieces(String dossier) {
+    // ⚠️ `a_la_date` est EXIGÉ par la route : c'est la date de référence dont
+    // le serveur se sert pour calculer anciennetés et retards. On envoie le
+    // jour de l'appareil, qui est aussi celui que l'adhérent a sous les yeux.
+    final aujourdHui = DateTime.now().toIso8601String().split('T').first;
+    return _lireGarde(
+      chemin: '/collecte/pieces?entreprise=$dossier&a_la_date=$aujourdHui',
+      sessionExpiree: const Historique(sessionAExpire: true),
+      // ⚠️ Un 404 arrive ici quand le dossier sort du périmètre du compte — le
+      // serveur répond « ce dossier n'existe pas » plutôt que « vous n'y avez pas
+      // droit », et il a raison de ne pas renseigner un curieux sur l'existence
+      // des dossiers des autres. Vu d'ici, c'est un serveur qui n'a pas répondu.
+      injoignable: (enPanne) =>
+          Historique(serveurJoignable: false, serveurEnPanne: enPanne),
+      lire: (lignes, _, _) {
+        if (lignes is! List) throw const FormatException('pièces illisibles');
+        final pieces = [
+          for (final ligne in lignes)
+            PieceRemise.depuisJson(ligne as Map<String, dynamic>),
+        ];
+        // ⚠️ LA PLUS RÉCENTE EN HAUT, à l'inverse de la file d'attente.
+        //
+        // La file part dans l'ordre de la prise de vue, parce que c'est la
+        // chronologie que le comptable doit voir arriver. Un historique se lit
+        // dans l'autre sens : on y cherche ce qu'on vient de faire, pas ce qu'on
+        // a fait il y a six mois.
+        pieces.sort((a, b) => b.deposeLe.compareTo(a.deposeLe));
+        return Historique(pieces: pieces);
+      },
+    );
   }
 
   /// Les échéances du dossier, telles que l'adhérent les lit.
@@ -353,28 +405,15 @@ class ClientApi
   /// encore : ici, une liste vide affichée comme « vous êtes à jour » dirait à un
   /// adhérent en retard de dix-neuf mois qu'il est tranquille.
   @override
-  Future<Echeancier> mesEcheances(String dossier) async {
-    try {
-      final requete = await _client.getUrl(
-        base.resolve('/obligations/dossiers/$dossier/mes-echeances'),
-      );
-      _poserLaSession(requete);
-      final reponse = await requete.close();
-      final corps = await reponse.transform(utf8.decoder).join();
-      if (reponse.statusCode == HttpStatus.unauthorized) {
-        return const Echeancier(sessionAExpire: true);
-      }
-      if (reponse.statusCode != HttpStatus.ok) {
-        return const Echeancier(serveurJoignable: false);
-      }
-      final json = jsonDecode(corps);
-      if (json is! Map<String, dynamic>) {
-        return const Echeancier(serveurJoignable: false);
-      }
-      final lignes = json['echeances'];
-      if (lignes is! List) {
-        return const Echeancier(serveurJoignable: false);
-      }
+  Future<Echeancier> mesEcheances(String dossier) => _lireGarde(
+    chemin: '/obligations/dossiers/$dossier/mes-echeances',
+    cle: 'echeances/$dossier',
+    sessionExpiree: const Echeancier(sessionAExpire: true),
+    injoignable: (enPanne) =>
+        Echeancier(serveurJoignable: false, serveurEnPanne: enPanne),
+    lire: (json, copieDu, enPanne) {
+      final lignes = json is Map<String, dynamic> ? json['echeances'] : null;
+      if (lignes is! List) throw const FormatException('échéancier illisible');
       final echeances = [
         for (final ligne in lignes)
           Echeance.depuisJson(ligne as Map<String, dynamic>),
@@ -392,11 +431,13 @@ class ClientApi
         if (urgence != 0) return urgence;
         return a.echeanceLe.compareTo(b.echeanceLe);
       });
-      return Echeancier(echeances: echeances);
-    } on Object {
-      return const Echeancier(serveurJoignable: false);
-    }
-  }
+      return Echeancier(
+        echeances: echeances,
+        copieDu: copieDu,
+        serveurEnPanne: enPanne,
+      );
+    },
+  );
 
   /// « J'ai déjà payé » : dépose la quittance, puis dit ce qu'elle acquitte.
   ///
@@ -484,29 +525,15 @@ class ClientApi
   }
 
   @override
-  Future<Fiche> monEntreprise(String dossier) async {
-    try {
-      final requete = await _client.getUrl(
-        base.resolve('/portefeuille/entreprises/$dossier/mon-entreprise'),
-      );
-      _poserLaSession(requete);
-      final reponse = await requete.close();
-      final corps = await reponse.transform(utf8.decoder).join();
-      if (reponse.statusCode == HttpStatus.unauthorized) {
-        return const Fiche(sessionAExpire: true);
-      }
-      if (reponse.statusCode != HttpStatus.ok) {
-        return const Fiche(serveurJoignable: false);
-      }
-      final json = jsonDecode(corps);
-      if (json is! Map<String, dynamic>) {
-        return const Fiche(serveurJoignable: false);
-      }
-      return Fiche(entreprise: MonEntreprise.depuisJson(json));
-    } on Object {
-      return const Fiche(serveurJoignable: false);
-    }
-  }
+  Future<Fiche> monEntreprise(String dossier) => _lireGarde(
+    chemin: '/portefeuille/entreprises/$dossier/mon-entreprise',
+    sessionExpiree: const Fiche(sessionAExpire: true),
+    injoignable: (enPanne) =>
+        Fiche(serveurJoignable: false, serveurEnPanne: enPanne),
+    lire: (json, _, _) => Fiche(
+      entreprise: MonEntreprise.depuisJson(json as Map<String, dynamic>),
+    ),
+  );
 
   @override
   Future<SortDuSignalement> signalerUnChangement({
@@ -544,28 +571,15 @@ class ClientApi
   }
 
   @override
-  Future<Documents> mesDocuments(String dossier) async {
-    try {
-      final requete = await _client.getUrl(
-        base.resolve('/obligations/dossiers/$dossier/mes-documents'),
-      );
-      _poserLaSession(requete);
-      final reponse = await requete.close();
-      final corps = await reponse.transform(utf8.decoder).join();
-      if (reponse.statusCode == HttpStatus.unauthorized) {
-        return const Documents(sessionAExpire: true);
-      }
-      if (reponse.statusCode != HttpStatus.ok) {
-        return const Documents(serveurJoignable: false);
-      }
-      final json = jsonDecode(corps);
-      if (json is! Map<String, dynamic>) {
-        return const Documents(serveurJoignable: false);
-      }
-      final lignes = json['documents'];
-      if (lignes is! List) {
-        return const Documents(serveurJoignable: false);
-      }
+  Future<Documents> mesDocuments(String dossier) => _lireGarde(
+    chemin: '/obligations/dossiers/$dossier/mes-documents',
+    cle: 'documents/$dossier',
+    sessionExpiree: const Documents(sessionAExpire: true),
+    injoignable: (enPanne) =>
+        Documents(serveurJoignable: false, serveurEnPanne: enPanne),
+    lire: (json, copieDu, enPanne) {
+      final lignes = json is Map<String, dynamic> ? json['documents'] : null;
+      if (lignes is! List) throw const FormatException('documents illisibles');
       final documents = [
         for (final l in lignes)
           DocumentRecu.depuisJson(l as Map<String, dynamic>),
@@ -573,11 +587,13 @@ class ClientApi
       // Le plus récent en tête : on cherche la dernière déclaration déposée, pas
       // celle d'il y a trois ans.
       documents.sort((a, b) => b.deposeLe.compareTo(a.deposeLe));
-      return Documents(documents: documents);
-    } on Object {
-      return const Documents(serveurJoignable: false);
-    }
-  }
+      return Documents(
+        documents: documents,
+        copieDu: copieDu,
+        serveurEnPanne: enPanne,
+      );
+    },
+  );
 
   /// Le catalogue, au barème du jour.
   ///
@@ -877,57 +893,49 @@ class ClientApi
   /// ⚠️ Ouvert aux seuls cas d'essai. Le nom le dit, pour que personne ne
   /// l'emploie ailleurs en croyant à une API.
   @visibleForTesting
-  static String nomDeLaPhotoPourEssai(DateTime prisLe) => _nomDeLaPhoto(prisLe);
+  static String nomDeLaPhotoPourEssai(
+    DateTime prisLe, [
+    String extension = 'jpg',
+  ]) => _nomDeLaPhoto(prisLe, extension);
 
-  static String _nomDeLaPhoto(DateTime prisLe) {
+  static String _nomDeLaPhoto(DateTime prisLe, [String extension = 'jpg']) {
     String deuxChiffres(int n) => n.toString().padLeft(2, '0');
     final jour =
         '${prisLe.year}-${deuxChiffres(prisLe.month)}-${deuxChiffres(prisLe.day)}';
     final heure = '${deuxChiffres(prisLe.hour)}${deuxChiffres(prisLe.minute)}';
-    return 'photo-$jour-$heure.jpg';
+    // Un scan reste un scan : « scan-…pdf », et non « photo-…pdf ».
+    final mot = extension == 'jpg' ? 'photo' : 'scan';
+    return '$mot-$jour-$heure.$extension';
   }
 
   // ── L'accueil connecté ───────────────────────────────────────────────────
 
   @override
-  Future<String?> monNom() async {
-    try {
-      final requete = await _client.getUrl(base.resolve('/transverse/moi'));
-      _poserLaSession(requete);
-      final reponse = await requete.close();
-      final corps = await reponse.transform(utf8.decoder).join();
-      if (reponse.statusCode != HttpStatus.ok) return null;
-      final json = jsonDecode(corps);
+  Future<String?> monNom() => _lireGarde<String?>(
+    chemin: '/transverse/moi',
+    // 20 octobre 2026 : gardé aussi, pour que l'accueil hors ligne salue encore.
+    cle: 'moi/nom',
+    sessionExpiree: null,
+    injoignable: (_) => null,
+    lire: (json, _, _) {
       final nom = json is Map<String, dynamic> ? json['nom_complet'] : null;
       return nom is String && nom.trim().isNotEmpty ? nom.trim() : null;
-    } on Object {
-      return null;
-    }
-  }
+    },
+  );
 
   @override
-  Future<MonMois> monMois(String dossier) async {
-    try {
-      final requete = await _client.getUrl(
-        base.resolve('/pilotage/dossiers/$dossier/mon-mois'),
-      );
-      _poserLaSession(requete);
-      final reponse = await requete.close();
-      final corps = await reponse.transform(utf8.decoder).join();
-      if (reponse.statusCode == HttpStatus.unauthorized) {
-        return const MonMois(sessionAExpire: true);
-      }
-      if (reponse.statusCode != HttpStatus.ok) {
-        return const MonMois(serveurJoignable: false);
-      }
-      final json = jsonDecode(corps);
-      return json is Map<String, dynamic>
-          ? MonMois.depuisJson(json)
-          : const MonMois(serveurJoignable: false);
-    } on Object {
-      return const MonMois(serveurJoignable: false);
-    }
-  }
+  Future<MonMois> monMois(String dossier) => _lireGarde(
+    chemin: '/pilotage/dossiers/$dossier/mon-mois',
+    cle: 'mois/$dossier',
+    sessionExpiree: const MonMois(sessionAExpire: true),
+    injoignable: (enPanne) =>
+        MonMois(serveurJoignable: false, serveurEnPanne: enPanne),
+    lire: (json, copieDu, enPanne) => MonMois.depuisJson(
+      json as Map<String, dynamic>,
+      copieDu: copieDu,
+      serveurEnPanne: enPanne,
+    ),
+  );
 
   @override
   Future<SortDeLaReponse> repondre({
@@ -980,6 +988,321 @@ class ClientApi
         return const FichierLu(sessionAExpire: true);
       }
       if (reponse.statusCode == HttpStatus.notFound) {
+        await reponse.drain<void>();
+        return const FichierLu(introuvable: true);
+      }
+      if (reponse.statusCode != HttpStatus.ok) {
+        await reponse.drain<void>();
+        return const FichierLu(serveurJoignable: false);
+      }
+      final octets = await consolidateHttpClientResponseBytes(
+        reponse,
+      ).timeout(const Duration(seconds: 60));
+      return FichierLu(
+        octets: octets,
+        type: reponse.headers.contentType?.mimeType,
+      );
+    } on Object {
+      return const FichierLu(serveurJoignable: false);
+    }
+  }
+
+  // ── L'espace adhérent : honoraires, DSF, paie (18 octobre 2026) ─────────────
+
+  // ── La lecture gardée (20 octobre 2026) ─────────────────────────────────────
+
+  /// Où garder les dernières lectures, pour les montrer hors ligne. Posée par
+  /// `main` dès que le dossier des documents est connu ; `null` : rien n'est gardé.
+  ///
+  /// ⚠️ Un champ et non un paramètre du constructeur : le client naît avant que le
+  /// système ait dit où ranger les fichiers, et la reprise de session n'attend pas.
+  MemoireDesLectures? memoireDesLectures;
+
+  /// Vrai quand l'échec vient du SERVEUR, et non du réseau du téléphone.
+  ///
+  /// ⚠️ Une connexion REFUSÉE (le téléphone a joint la machine, rien n'écoute), une
+  /// réponse illisible, une poignée de main TLS ratée : le réseau marche, c'est le
+  /// cabinet qui ne répond pas. Une adresse introuvable, un réseau inaccessible, un
+  /// délai dépassé : c'est le réseau de l'adhérent. Dire « vérifiez votre
+  /// connexion » à quelqu'un dont la 4G marche le fait chercher pour rien.
+  static bool serveurEnPanne(Object erreur) {
+    if (erreur is SocketException) {
+      final code = erreur.osError?.errorCode;
+      // ECONNREFUSED : 111 sous Linux et Android, 61 sous macOS et iOS.
+      return code == 111 || code == 61;
+    }
+    if (erreur is TimeoutException) return false;
+    return erreur is HttpException ||
+        erreur is TlsException ||
+        erreur is FormatException ||
+        erreur is TypeError;
+  }
+
+  /// Une lecture authentifiée, gardée sur l'appareil quand elle réussit, et rendue
+  /// depuis la copie quand le serveur n'est pas joint.
+  ///
+  /// ⚠️ [lire] reçoit le JSON, la date de la copie (`null` : lue à l'instant) et la
+  /// nature de la panne. Il LÈVE quand la forme ne va pas : une réponse 200
+  /// illisible se traite comme une panne du serveur, jamais comme une liste vide.
+  ///
+  /// ⚠️ Une session expirée ne rend JAMAIS la copie : il faut se reconnecter, et
+  /// montrer les chiffres d'hier en dessous ferait croire que tout va bien.
+  Future<T> _lireGarde<T>({
+    required String chemin,
+    String? cle,
+    required T Function(Object json, DateTime? copieDu, bool serveurEnPanne)
+    lire,
+    required T sessionExpiree,
+    required T Function(bool serveurEnPanne) injoignable,
+  }) async {
+    var enPanne = false;
+    try {
+      final requete = await _client.getUrl(base.resolve(chemin));
+      _poserLaSession(requete);
+      final reponse = await requete.close().timeout(
+        const Duration(seconds: 15),
+      );
+      final corps = await reponse.transform(utf8.decoder).join();
+      if (reponse.statusCode == HttpStatus.unauthorized) return sessionExpiree;
+      if (reponse.statusCode == HttpStatus.ok) {
+        final lu = lire(jsonDecode(corps) as Object, null, false);
+        if (cle != null) {
+          await memoireDesLectures?.retenir(cle, corps, clock.now());
+        }
+        return lu;
+      }
+      enPanne = true;
+    } on Object catch (erreur) {
+      enPanne = serveurEnPanne(erreur);
+    }
+    final copie = cle == null ? null : await memoireDesLectures?.lire(cle);
+    if (copie != null) {
+      try {
+        return lire(jsonDecode(copie.corps) as Object, copie.lueLe, enPanne);
+      } on Object {
+        // Une copie illisible (une version précédente l'a écrite autrement) : on
+        // dit la panne, comme s'il n'y en avait pas.
+      }
+    }
+    return injoignable(enPanne);
+  }
+
+  /// Une lecture JSON authentifiée, traduite en `Lecture`.
+  Future<Lecture<T>> _lireEnJson<T>(
+    String chemin,
+    T Function(Object json) lire, {
+    String? cle,
+  }) => _lireGarde<Lecture<T>>(
+    chemin: chemin,
+    cle: cle,
+    sessionExpiree: const Lecture.sessionExpiree(),
+    injoignable: (enPanne) => Lecture.injoignable(serveurEnPanne: enPanne),
+    lire: (json, copieDu, enPanne) =>
+        Lecture.lue(lire(json), copieDu: copieDu, serveurEnPanne: enPanne),
+  );
+
+  @override
+  Future<Lecture<MesHonoraires>> mesHonoraires(String dossier) => _lireEnJson(
+    '/souscription/honoraires/${Uri.encodeComponent(dossier)}',
+    (json) => MesHonoraires.depuis(json as Map<String, dynamic>),
+    cle: 'honoraires/$dossier',
+  );
+
+  @override
+  Future<DemandeDeDebit> demanderLeDebit({
+    required String dossier,
+    required String periode,
+    required String telephone,
+  }) => _demanderUnDebit(
+    '/souscription/honoraires/${Uri.encodeComponent(dossier)}/paiement-en-ligne',
+    {'periode': periode, 'telephone': telephone},
+  );
+
+  @override
+  Future<Lecture<FondsConfies>> mesFondsConfies(String dossier) => _lireEnJson(
+    '/souscription/fonds-de-tiers/${Uri.encodeComponent(dossier)}',
+    (json) => FondsConfies.depuis(json as Map<String, dynamic>),
+  );
+
+  @override
+  Future<DemandeDeDebit> confierSesFonds({
+    required String dossier,
+    required String appel,
+    required String telephone,
+  }) => _demanderUnDebit(
+    '/souscription/fonds-de-tiers/${Uri.encodeComponent(dossier)}'
+    '/appels/${Uri.encodeComponent(appel)}/paiement-en-ligne',
+    {'telephone': telephone},
+  );
+
+  /// Une demande de débit mobile money, honoraires ou fonds confiés : les deux
+  /// routes répondent de la même façon.
+  Future<DemandeDeDebit> _demanderUnDebit(
+    String chemin,
+    Map<String, Object> corpsDeLaDemande,
+  ) async {
+    try {
+      final requete = await _client.postUrl(base.resolve(chemin));
+      _poserLaSession(requete);
+      requete.headers.contentType = ContentType.json;
+      requete.write(jsonEncode(corpsDeLaDemande));
+      final reponse = await requete.close().timeout(
+        const Duration(seconds: 30),
+      );
+      final corps = await reponse.transform(utf8.decoder).join();
+      Object? json;
+      try {
+        json = jsonDecode(corps);
+      } on FormatException {
+        json = null;
+      }
+      final detail = json is Map<String, dynamic> ? json['detail'] : null;
+      final message = detail is String ? detail : null;
+      if (reponse.statusCode == HttpStatus.unauthorized) {
+        return const DemandeDeDebit(sort: SortDuDebit.sessionExpiree);
+      }
+      if (reponse.statusCode == HttpStatus.conflict) {
+        return DemandeDeDebit(sort: SortDuDebit.dejaEnCours, message: message);
+      }
+      if (reponse.statusCode == 422 ||
+          reponse.statusCode == HttpStatus.forbidden) {
+        return DemandeDeDebit(sort: SortDuDebit.refusee, message: message);
+      }
+      if (reponse.statusCode >= 300 || json is! Map<String, dynamic>) {
+        return const DemandeDeDebit(sort: SortDuDebit.indisponible);
+      }
+      // ⚠️ `accepte` faux : l'opérateur a refusé d'envoyer la demande. Son
+      // message est écrit pour l'adhérent, on le montre tel quel.
+      return DemandeDeDebit(
+        sort: json['accepte'] == true
+            ? SortDuDebit.envoyee
+            : SortDuDebit.refusee,
+        message: json['message'] as String?,
+        simule: json['simule'] == true,
+      );
+    } on Object {
+      return const DemandeDeDebit(sort: SortDuDebit.indisponible);
+    }
+  }
+
+  @override
+  Future<Lecture<MaDsf>> maDsf(String dossier) => _lireEnJson(
+    '/cloture/dossiers/${Uri.encodeComponent(dossier)}/ma-dsf',
+    (json) => MaDsf.depuis(json as Map<String, dynamic>),
+    cle: 'dsf/$dossier',
+  );
+
+  @override
+  Future<SortDuVersement> verserUnePieceDsf({
+    required String dossier,
+    required String exercice,
+    required int numero,
+    required String cheminDuFichier,
+  }) async {
+    try {
+      final fichier = File(cheminDuFichier);
+      if (!await fichier.exists()) return SortDuVersement.refusee;
+      final separateur = '----cga${DateTime.now().microsecondsSinceEpoch}';
+      final requete = await _client.postUrl(
+        base.resolve(
+          '/cloture/dossiers/${Uri.encodeComponent(dossier)}/ma-dsf/'
+          '${Uri.encodeComponent(exercice)}/pieces/$numero',
+        ),
+      );
+      _poserLaSession(requete);
+      requete.headers.set(
+        HttpHeaders.contentTypeHeader,
+        'multipart/form-data; boundary=$separateur',
+      );
+      // ⚠️ Les mêmes bornes que `envoyerLeFichier` : des octets bruts, jamais une
+      // chaîne encodée, ou le serveur lit deux octets de trop dans le fichier.
+      requete.add(
+        utf8.encode(
+          '--$separateur\r\n'
+          'Content-Disposition: form-data; name="fichier"; '
+          'filename="${fichier.uri.pathSegments.last}"\r\n'
+          'Content-Type: application/octet-stream\r\n\r\n',
+        ),
+      );
+      requete.add(await fichier.readAsBytes());
+      requete.add(utf8.encode('\r\n--$separateur--\r\n'));
+      final reponse = await requete.close().timeout(
+        const Duration(seconds: 90),
+      );
+      await reponse.drain<void>();
+      return switch (reponse.statusCode) {
+        HttpStatus.ok => SortDuVersement.recue,
+        HttpStatus.unauthorized => SortDuVersement.sessionExpiree,
+        HttpStatus.requestEntityTooLarge => SortDuVersement.tropLourde,
+        HttpStatus.unsupportedMediaType => SortDuVersement.formatRefuse,
+        HttpStatus.conflict ||
+        HttpStatus.notFound ||
+        HttpStatus.forbidden => SortDuVersement.refusee,
+        _ => SortDuVersement.indisponible,
+      };
+    } on Object {
+      return SortDuVersement.indisponible;
+    }
+  }
+
+  @override
+  Future<Lecture<MaPaie>> maPaie(
+    String dossier, {
+    required int annee,
+    required int mois,
+  }) async {
+    final jour = DateTime.now().toIso8601String().split('T').first;
+    final niu = Uri.encodeComponent(dossier);
+    // ⚠️ La clé ne porte pas `a_la_date` : elle change chaque jour, et la copie
+    // d'hier ne se retrouverait jamais.
+    final personnel = await _lireEnJson(
+      '/social/dossiers/$niu/salaries?a_la_date=$jour',
+      (json) => json as List<dynamic>,
+      cle: 'paie/$dossier/salaries',
+    );
+    if (personnel.valeur == null) {
+      return personnel.sessionAExpire
+          ? const Lecture.sessionExpiree()
+          : Lecture.injoignable(serveurEnPanne: personnel.serveurEnPanne);
+    }
+    final declaration = await _lireEnJson(
+      '/social/dossiers/$niu/declaration/$annee/$mois?a_la_date=$jour',
+      (json) => json as Map<String, dynamic>,
+      cle: 'paie/$dossier/$annee-$mois',
+    );
+    if (declaration.valeur == null) {
+      return declaration.sessionAExpire
+          ? const Lecture.sessionExpiree()
+          : Lecture.injoignable(serveurEnPanne: declaration.serveurEnPanne);
+    }
+    // Deux copies : la paie date de la plus ancienne des deux.
+    final copies = [?personnel.copieDu, ?declaration.copieDu]..sort();
+    return Lecture.lue(
+      MaPaie.depuis(
+        annee: annee,
+        mois: mois,
+        personnel: personnel.valeur!,
+        declaration: declaration.valeur!,
+      ),
+      copieDu: copies.firstOrNull,
+      serveurEnPanne: personnel.serveurEnPanne || declaration.serveurEnPanne,
+    );
+  }
+
+  @override
+  Future<FichierLu> lireUnDocument(String chemin) async {
+    try {
+      final requete = await _client.getUrl(base.resolve(chemin));
+      _poserLaSession(requete);
+      final reponse = await requete.close().timeout(
+        const Duration(seconds: 20),
+      );
+      if (reponse.statusCode == HttpStatus.unauthorized) {
+        await reponse.drain<void>();
+        return const FichierLu(sessionAExpire: true);
+      }
+      if (reponse.statusCode == HttpStatus.notFound ||
+          reponse.statusCode == HttpStatus.conflict) {
         await reponse.drain<void>();
         return const FichierLu(introuvable: true);
       }

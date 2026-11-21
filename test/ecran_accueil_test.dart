@@ -9,6 +9,7 @@ import 'package:cga_mobile/domaine/mon_entreprise.dart';
 import 'package:cga_mobile/domaine/preuve.dart';
 import 'package:cga_mobile/domaine/piece_remise.dart';
 import 'package:cga_mobile/domaine/prise_de_vue.dart';
+import 'package:cga_mobile/ecrans/apercu_du_depot.dart';
 import 'package:cga_mobile/ecrans/accueil.dart';
 import 'package:cga_mobile/marque.dart';
 import 'package:cga_mobile/ports/appareil_photo.dart';
@@ -177,6 +178,184 @@ void main() {
     await testeur.pumpAndSettle();
   }
 
+  group('Les deux façons de remettre une pièce (18 octobre 2026)', () {
+    testWidgets('sans galerie branchée, seul l\'appareil photo est proposé', (
+      testeur,
+    ) async {
+      await poser(testeur);
+
+      expect(find.byKey(const Key('bouton-photographier')), findsOneWidget);
+      expect(find.byKey(const Key('bouton-galerie')), findsNothing);
+    });
+
+    testWidgets('la galerie remet une pièce déjà reçue en image', (
+      testeur,
+    ) async {
+      final galerie = AppareilFeint(cache);
+      prise = PriseDeVue(
+        appareil: AppareilFeint(cache),
+        galerie: galerie,
+        file: file,
+        photos: Directory('${racine.path}/photos'),
+      );
+      final remis = <Depot>[];
+      await poser(
+        testeur,
+        remettre: (d) async {
+          remis.add(d);
+          return Reponse.accepte;
+        },
+      );
+
+      await testeur.runAsync(() async {
+        await testeur.tap(find.byKey(const Key('bouton-galerie')));
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      });
+      await testeur.pumpAndSettle();
+
+      // 19 octobre 2026 : l'aperçu AVANT l'envoi, et ce que l'adhérent en dit.
+      expect(find.text('Vérifier la pièce'), findsOneWidget);
+      await testeur.scrollUntilVisible(
+        find.byKey(const Key('nature-FACTURE_ACHAT')),
+        300,
+        scrollable: _defilementDeLApercu(),
+      );
+      await testeur.ensureVisible(
+        find.byKey(const Key('nature-FACTURE_ACHAT')),
+      );
+      await testeur.pumpAndSettle();
+      await testeur.tap(find.byKey(const Key('nature-FACTURE_ACHAT')));
+      await testeur.pump();
+      await testeur.enterText(
+        find.byKey(const Key('apercu-emetteur')),
+        'QUINCAILLERIE DU WOURI',
+      );
+      await testeur.enterText(
+        find.byKey(const Key('apercu-montant')),
+        '178875',
+      );
+      await testeur.scrollUntilVisible(
+        find.byKey(const Key('apercu-envoyer')),
+        300,
+        scrollable: _defilementDeLApercu(),
+      );
+      await testeur.ensureVisible(find.byKey(const Key('apercu-envoyer')));
+      await testeur.pumpAndSettle();
+      await testeur.tap(find.byKey(const Key('apercu-envoyer')));
+      await pousserJusquAuBandeau(testeur);
+
+      expect(galerie.prises, 1);
+      expect(
+        find.text('Enregistrée. Elle partira toute seule.'),
+        findsOneWidget,
+      );
+      final remise = remis.single.connaissance!.versLaRemise();
+      expect(remise['type'], 'FACTURE_ACHAT');
+      expect(remise['emetteur'], 'QUINCAILLERIE DU WOURI');
+      expect(remise['montant_ttc'], 178875);
+      expect(
+        remise.containsKey('commentaire'),
+        isFalse,
+        reason: 'rien de vide ne part',
+      );
+    });
+
+    testWidgets('reprendre la photo rouvre la source, sans rien mettre en file', (
+      testeur,
+    ) async {
+      final galerie = AppareilFeint(cache);
+      prise = PriseDeVue(
+        appareil: AppareilFeint(cache),
+        galerie: galerie,
+        file: file,
+        photos: Directory('${racine.path}/photos'),
+      );
+      await poser(testeur);
+
+      await testeur.runAsync(() async {
+        await testeur.tap(find.byKey(const Key('bouton-galerie')));
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      });
+      await testeur.pumpAndSettle();
+      await testeur.scrollUntilVisible(
+        find.byKey(const Key('apercu-reprendre')),
+        300,
+        scrollable: _defilementDeLApercu(),
+      );
+      await testeur.ensureVisible(find.byKey(const Key('apercu-reprendre')));
+      await testeur.pumpAndSettle();
+      await testeur.tap(find.byKey(const Key('apercu-reprendre')));
+      // La copie s'efface et la source se rouvre : du disque, hors de l'horloge feinte.
+      for (var i = 0; i < 6; i++) {
+        await testeur.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 40)),
+        );
+        await testeur.pump(const Duration(milliseconds: 100));
+      }
+      await testeur.pumpAndSettle();
+
+      expect(galerie.prises, 2);
+      expect(find.text('Vérifier la pièce'), findsOneWidget);
+      expect(await file.enAttente(), isEmpty);
+    });
+  });
+
+  group('Un scan déjà fait (19 octobre 2026)', () {
+    testWidgets('un PDF passe par sa fiche, garde son extension et part', (
+      testeur,
+    ) async {
+      final scans = _ScanFeint(cache);
+      prise = PriseDeVue(
+        appareil: AppareilFeint(cache),
+        fichiers: scans,
+        file: file,
+        photos: Directory('${racine.path}/photos'),
+      );
+      final remis = <Depot>[];
+      await poser(
+        testeur,
+        remettre: (d) async {
+          remis.add(d);
+          return Reponse.accepte;
+        },
+      );
+
+      await testeur.scrollUntilVisible(
+        find.byKey(const Key('bouton-fichier')),
+        200,
+      );
+      await testeur.runAsync(() async {
+        await testeur.tap(find.byKey(const Key('bouton-fichier')));
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+      });
+      await testeur.pumpAndSettle();
+
+      expect(find.text('Vérifier le scan'), findsOneWidget);
+      expect(find.byKey(const Key('apercu-scan')), findsOneWidget);
+      expect(find.textContaining('Document PDF'), findsOneWidget);
+      await testeur.scrollUntilVisible(
+        find.byKey(const Key('apercu-envoyer')),
+        300,
+        scrollable: _defilementDeLApercu(),
+      );
+      expect(find.text('Choisir un autre fichier'), findsOneWidget);
+      await testeur.ensureVisible(find.byKey(const Key('apercu-envoyer')));
+      await testeur.pumpAndSettle();
+      await testeur.tap(find.byKey(const Key('apercu-envoyer')));
+      await pousserJusquAuBandeau(testeur);
+
+      expect(scans.prises, 1);
+      expect(remis.single.cheminDuFichier, endsWith('.pdf'));
+    });
+
+    testWidgets('sans source de fichiers, on ne propose pas le scan', (
+      testeur,
+    ) async {
+      await poser(testeur);
+      expect(find.byKey(const Key('bouton-fichier')), findsNothing);
+    });
+  });
+
   group("Le verdict, en tête d'écran", () {
     testWidgets('une file vide conclut, au lieu de compter', (testeur) async {
       await poser(testeur);
@@ -267,7 +446,7 @@ void main() {
       await poser(testeur);
 
       // ⚠️ « 3 » ne dit pas DE QUELLE facture il s'agit. L'heure, si.
-      expect(find.text('Photographiée le 19/09 à 14h05'), findsOneWidget);
+      expect(find.text('Prise le 19/09 à 14h05'), findsOneWidget);
       expect(find.text('Dossier M081234567890P'), findsOneWidget);
     });
 
@@ -482,6 +661,13 @@ void main() {
 
       await testeur.tap(find.byKey(const Key('bouton-sortir')));
       await testeur.pumpAndSettle();
+      expect(
+        session.fermee,
+        isFalse,
+        reason: 'un seul appui ne déconnecte plus',
+      );
+      await testeur.tap(find.byKey(const Key('confirmer-deconnexion')));
+      await testeur.pumpAndSettle();
 
       expect(session.fermee, isTrue);
       expect(sorti, isTrue);
@@ -505,7 +691,7 @@ void main() {
       await poser(testeur, ouvrirLHistorique: () => ouvert++);
 
       expect(find.byKey(const Key('vers-historique')), findsOneWidget);
-      expect(find.text("Tout ce que j'ai envoyé"), findsOneWidget);
+      expect(find.text('Mes pièces envoyées'), findsOneWidget);
       // ⚠️ La pièce jointe est annoncée : c'est elle qu'on vient chercher, pas
       // une ligne de journal.
       expect(find.textContaining('le document de chacune'), findsOneWidget);
@@ -526,4 +712,27 @@ void main() {
       expect(find.byKey(const Key('vers-historique')), findsNothing);
     });
   });
+}
+
+/// La liste de l'aperçu, et non celle de l'écran de dépôt qu'il recouvre.
+Finder _defilementDeLApercu() => find
+    .descendant(
+      of: find.byType(EcranApercuDuDepot),
+      matching: find.byType(Scrollable),
+    )
+    .first;
+
+/// Un scan PDF tel que le rend le sélecteur de fichiers : une copie provisoire.
+class _ScanFeint implements AppareilPhoto {
+  _ScanFeint(this.cache);
+  final Directory cache;
+  int prises = 0;
+
+  @override
+  Future<String?> photographier() async {
+    prises++;
+    final f = File('${cache.path}/facture-$prises.pdf');
+    await f.writeAsBytes('%PDF-1.4 scan'.codeUnits);
+    return f.path;
+  }
 }

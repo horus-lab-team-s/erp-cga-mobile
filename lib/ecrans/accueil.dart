@@ -5,12 +5,14 @@ import 'package:flutter/material.dart';
 
 import '../marque.dart';
 
+import '../composants/actions.dart';
 import '../composants/carte.dart';
 import '../composants/porte_de_l_historique.dart';
 import '../domaine/depot.dart';
 import '../ports/service_de_session.dart';
 import '../domaine/file_d_attente.dart';
 import '../domaine/prise_de_vue.dart';
+import 'apercu_du_depot.dart';
 
 /// L'écran d'après la connexion : l'état de la file, et rien d'autre pour
 /// l'instant.
@@ -117,7 +119,8 @@ class EtatDeLAccueil extends State<EcranAccueil> with WidgetsBindingObserver {
   /// instant-là qu'il faut réessayer, pas trente secondes plus tard.
   @override
   void didChangeAppLifecycleState(AppLifecycleState etat) {
-    if (etat == AppLifecycleState.resumed) _envoyerDiscretement();
+    // Au retour au premier plan, le réseau a souvent changé : on essaie tout de suite.
+    if (etat == AppLifecycleState.resumed) _envoyerDiscretement(forcer: true);
   }
 
   Future<void> _relire() async {
@@ -132,21 +135,76 @@ class EtatDeLAccueil extends State<EcranAccueil> with WidgetsBindingObserver {
   }
 
   Future<void> _sortir() async {
+    if (!await confirmerLaDeconnexion(context)) return;
     await widget.session.fermerLaSession();
     widget.quandDeconnecte();
   }
 
-  /// Ouvre l'appareil photo, range la pièce, et rafraîchit la liste.
-  Future<void> photographier() async {
-    final dossier = await _quelDossier();
+  /// Ouvre l'appareil photo (ou la galerie), range la pièce, et rafraîchit la
+  /// liste.
+  ///
+  /// [demande] : la pièce répond à une demande du cabinet, dont la file garde le
+  /// numéro (20 octobre 2026). [remplace] : « Reprendre » sur une vignette ; la
+  /// nouvelle prise prend la place de l'ancienne, qui ne sort de la file qu'une
+  /// fois la nouvelle enregistrée.
+  Future<void> photographier({
+    bool depuisLaGalerie = false,
+    bool depuisUnFichier = false,
+    String? demande,
+    Depot? remplace,
+  }) async {
+    final dossier = remplace?.dossier ?? await _quelDossier();
     if (dossier == null || !mounted) return;
-    final depot = await widget.priseDeVue.pour(dossier);
-    if (!mounted) return;
-    if (depot == null) {
+    // ⚠️ 19 octobre 2026 : l'aperçu AVANT l'envoi. La photo partait sitôt prise ;
+    // une facture coupée ou floue revenait trois jours plus tard. On la revoit, on
+    // la décrit si l'on veut, puis on l'envoie, ou on la reprend.
+    while (true) {
+      final capture = await widget.priseDeVue.capturer(
+        depuisLaGalerie: depuisLaGalerie,
+        depuisUnFichier: depuisUnFichier,
+      );
       // ⚠️ Renoncer n'est pas une erreur, et n'appelle aucun message. On ferme
       // l'appareil photo par réflexe bien plus souvent qu'on ne le croit.
-      return;
+      if (capture == null || !mounted) return;
+      // ⚠️ Un scan n'est pas réduit comme une photo : un PDF de trente pages peut
+      // dépasser ce que le serveur accepte. On le dit MAINTENANT, et non par un
+      // refus muet trois jours plus tard dans la file.
+      if (await File(capture.chemin).length() > tailleMaximaleDUnePiece) {
+        await widget.priseDeVue.abandonner(capture);
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Ce fichier dépasse 20 Mo. Envoyez-le en plusieurs parties, '
+              'ou photographiez la facture.',
+            ),
+          ),
+        );
+        return;
+      }
+      if (!mounted) return;
+      final decision = await Navigator.of(context).push<DecisionDApercu>(
+        MaterialPageRoute(
+          builder: (_) => EcranApercuDuDepot(
+            chemin: capture.chemin,
+            unFichier: depuisUnFichier,
+          ),
+        ),
+      );
+      if (decision is EnvoyerLaPiece) {
+        await widget.priseDeVue.mettreEnFile(
+          dossier,
+          capture,
+          connaissance: decision.connaissance,
+          demande: demande ?? remplace?.demande,
+        );
+        if (remplace != null) await widget.file.retirer(remplace.identifiant);
+        break;
+      }
+      await widget.priseDeVue.abandonner(capture);
+      if (decision is! ReprendreLaPhoto || !mounted) return;
     }
+    if (!mounted) return;
     await _relire();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -155,6 +213,48 @@ class EtatDeLAccueil extends State<EcranAccueil> with WidgetsBindingObserver {
     // ⚠️ « Elle partira toute seule » : c'est ici que cela devient vrai.
     await _envoyerDiscretement();
   }
+
+  /// « Retirer » sur une vignette : la pièce ne partira pas, et sa photo s'efface.
+  ///
+  /// ⚠️ 20 octobre 2026 : AVEC CONFIRMATION. Le geste détruit la seule copie de la
+  /// pièce ; il est posé à côté de « Reprendre », qu'on touche bien plus souvent.
+  Future<void> _retirer(Depot depot) async {
+    final oui = await showDialog<bool>(
+      context: context,
+      builder: (contexte) => AlertDialog(
+        title: const Text('Retirer cette pièce ?'),
+        content: Text(
+          depot.etat == EtatDuDepot.refuse
+              ? 'Elle disparaîtra de ce téléphone. Le cabinet ne l\'a pas prise : '
+                    'rien ne change de son côté.'
+              : 'Elle ne partira pas au cabinet, et sa photo sera effacée de ce '
+                    'téléphone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(contexte).pop(false),
+            child: const Text('Garder'),
+          ),
+          FilledButton(
+            key: const Key('confirmer-retrait'),
+            onPressed: () => Navigator.of(contexte).pop(true),
+            child: const Text('Retirer'),
+          ),
+        ],
+      ),
+    );
+    if (oui != true || !mounted) return;
+    await widget.file.retirer(depot.identifiant);
+    await _relire();
+    if (!mounted) return;
+    annoncer(context, 'Pièce retirée.');
+  }
+
+  /// « Reprendre » : une nouvelle photo (ou un autre scan) à la place de celle-ci.
+  Future<void> _reprendre(Depot depot) => photographier(
+    depuisUnFichier: estUnDocumentPdf(depot.cheminDuFichier),
+    remplace: depot,
+  );
 
   /// Tente de vider la file SANS RIEN DIRE.
   ///
@@ -176,10 +276,10 @@ class EtatDeLAccueil extends State<EcranAccueil> with WidgetsBindingObserver {
   /// ses pièces, mais plus rien ne partira tant que l'adhérent n'est pas
   /// revenu, et il faut donc le lui dire.
   /// ─────────────────────────────────────────────────────────────────────────
-  Future<void> _envoyerDiscretement() async {
+  Future<void> _envoyerDiscretement({bool forcer = false}) async {
     if (_envoiEnCours || _enAttente.isEmpty || !mounted) return;
     setState(() => _envoiEnCours = true);
-    final vidage = await widget.file.vider(widget.remettre);
+    final vidage = await widget.file.vider(widget.remettre, forcer: forcer);
     if (!mounted) return;
     setState(() => _envoiEnCours = false);
     await widget.priseDeVue.effacerLesCopiesDevenuesInutiles();
@@ -229,7 +329,8 @@ class EtatDeLAccueil extends State<EcranAccueil> with WidgetsBindingObserver {
   /// réappuyait indéfiniment sur un bouton qui ne pouvait pas marcher.
   Future<void> _envoyer() async {
     setState(() => _envoiEnCours = true);
-    final vidage = await widget.file.vider(widget.remettre);
+    // L'adhérent a demandé l'envoi : on n'attend pas la fin de l'espacement.
+    final vidage = await widget.file.vider(widget.remettre, forcer: true);
     if (!mounted) return;
     setState(() => _envoiEnCours = false);
     // ⚠️ APRÈS le vidage. Une copie effacée avant l'accusé de réception perd la
@@ -309,6 +410,39 @@ class EtatDeLAccueil extends State<EcranAccueil> with WidgetsBindingObserver {
                   : null,
               sansDossier: !prete,
             ),
+            // 18 octobre 2026 : l'écran ne disait que « Tout est parti ». Les deux
+            // façons de remettre une pièce sont désormais sous les yeux : la
+            // photographier, ou la prendre dans la galerie quand elle est déjà
+            // arrivée en image.
+            if (prete) ...[
+              const SizedBox(height: 14),
+              BoutonDAction(
+                key: const Key('bouton-photographier'),
+                libelle: 'Photographier une pièce',
+                icone: Icons.photo_camera_outlined,
+                surAppui: photographier,
+              ),
+              if (widget.priseDeVue.galerie != null) ...[
+                const SizedBox(height: 10),
+                BoutonDAction(
+                  key: const Key('bouton-galerie'),
+                  libelle: 'Choisir dans la galerie',
+                  icone: Icons.photo_library_outlined,
+                  secondaire: true,
+                  surAppui: () => photographier(depuisLaGalerie: true),
+                ),
+              ],
+              if (widget.priseDeVue.fichiers != null) ...[
+                const SizedBox(height: 10),
+                BoutonDAction(
+                  key: const Key('bouton-fichier'),
+                  libelle: 'Importer un scan (PDF)',
+                  icone: Icons.upload_file_outlined,
+                  secondaire: true,
+                  surAppui: () => photographier(depuisUnFichier: true),
+                ),
+              ],
+            ],
             if (widget.ouvrirLHistorique != null) ...[
               const SizedBox(height: 14),
               PorteDeLHistorique(surAppui: widget.ouvrirLHistorique!),
@@ -323,7 +457,12 @@ class EtatDeLAccueil extends State<EcranAccueil> with WidgetsBindingObserver {
               for (final depot in _enAttente)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: _Vignette(depot: depot),
+                  child: _Vignette(
+                    depot: depot,
+                    // ⚠️ Pas pendant un envoi : la pièce est peut-être en route.
+                    retirer: _envoiEnCours ? null : () => _retirer(depot),
+                    reprendre: _envoiEnCours ? null : () => _reprendre(depot),
+                  ),
                 ),
             ],
             if (_refuses.isNotEmpty) ...[
@@ -337,7 +476,12 @@ class EtatDeLAccueil extends State<EcranAccueil> with WidgetsBindingObserver {
               for (final depot in _refuses)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: _Vignette(depot: depot, alerte: true),
+                  child: _Vignette(
+                    depot: depot,
+                    alerte: true,
+                    retirer: () => _retirer(depot),
+                    reprendre: () => _reprendre(depot),
+                  ),
                 ),
             ],
           ],
@@ -491,18 +635,29 @@ class _TitreDeSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final couleurs = Theme.of(context).colorScheme;
-    final teinte = alerte ? couleurs.error : couleurs.onSurfaceVariant;
+    final teinte = alerte ? couleurs.error : couleurs.secondary;
+    // ⚠️ 19 octobre 2026 : l'icône dans un petit cercle de sa teinte, et le titre
+    // en gras dans l'encre de l'institution. Le gris en petites lettres se lisait
+    // comme une note de bas de page, pas comme le début d'une section.
     return Row(
       children: [
-        Icon(icone, size: 17, color: teinte),
-        const SizedBox(width: 8),
-        Text(
-          texte,
-          style: TextStyle(
-            fontSize: 12.5,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 0.4,
-            color: teinte,
+        Container(
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: teinte.withValues(alpha: 0.12),
+          ),
+          child: Icon(icone, size: 17, color: teinte),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            texte,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: teinte,
+            ),
           ),
         ),
       ],
@@ -530,10 +685,30 @@ class _TitreDeSection extends StatelessWidget {
 /// vignette.
 /// ─────────────────────────────────────────────────────────────────────────────
 class _Vignette extends StatelessWidget {
-  const _Vignette({required this.depot, this.alerte = false});
+  const _Vignette({
+    required this.depot,
+    this.alerte = false,
+    this.retirer,
+    this.reprendre,
+  });
 
   final Depot depot;
   final bool alerte;
+
+  /// 20 octobre 2026 : se dédire d'une pièce, ou la reprendre. `null` : le geste
+  /// est momentanément indisponible (un envoi est en cours).
+  final VoidCallback? retirer;
+  final VoidCallback? reprendre;
+
+  /// Des boutons de ligne, serrés : la vignette ne doit pas doubler de hauteur.
+  static final _compact = TextButton.styleFrom(
+    padding: const EdgeInsets.symmetric(horizontal: 6),
+    minimumSize: const Size(48, 40),
+    visualDensity: VisualDensity.compact,
+  );
+
+  /// Beaucoup d'essais manqués : on le dit, au lieu d'un « en attente » muet.
+  bool get _peine => depot.tentatives >= FileDAttente.tentativesMaximales;
 
   String get _heure {
     String d(int n) => n.toString().padLeft(2, '0');
@@ -555,18 +730,30 @@ class _Vignette extends StatelessWidget {
             child: SizedBox(
               width: 58,
               height: 58,
-              child: Image.file(
-                File(depot.cheminDuFichier),
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => Container(
-                  color: couleurs.surfaceContainer,
-                  child: Icon(
-                    Icons.image_not_supported_outlined,
-                    size: 22,
-                    color: couleurs.onSurfaceVariant,
-                  ),
-                ),
-              ),
+              child: estUnDocumentPdf(depot.cheminDuFichier)
+                  ? Container(
+                      color: couleurs.errorContainer,
+                      child: Icon(
+                        Icons.picture_as_pdf_outlined,
+                        size: 26,
+                        color: couleurs.error,
+                      ),
+                    )
+                  : Image.file(
+                      File(depot.cheminDuFichier),
+                      fit: BoxFit.cover,
+                      // Une photo de 2000 px décodée pour un carré de 58 : la mémoire d'un
+                      // téléphone d'entrée de gamme ne suit pas une file de vingt pièces.
+                      cacheWidth: 180,
+                      errorBuilder: (_, _, _) => Container(
+                        color: couleurs.surfaceContainer,
+                        child: Icon(
+                          Icons.image_not_supported_outlined,
+                          size: 22,
+                          color: couleurs.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
             ),
           ),
           const SizedBox(width: 12),
@@ -575,7 +762,7 @@ class _Vignette extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Photographiée le $_heure',
+                  'Prise le $_heure',
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
@@ -586,13 +773,44 @@ class _Vignette extends StatelessWidget {
                 Text(
                   alerte
                       ? (depot.motifDuRefus ?? "Le cabinet ne l'a pas prise.")
+                      : _peine
+                      ? "N'arrive pas à partir. Elle réessaie seule ; vous pouvez aussi "
+                            'appuyer sur l\'envoi, en haut.'
+                      : depot.demande != null
+                      ? 'Pour la demande ${depot.demande} · ${depot.dossier}'
                       : 'Dossier ${depot.dossier}',
                   style: TextStyle(
                     fontSize: 12.5,
                     height: 1.35,
-                    color: alerte ? couleurs.error : couleurs.onSurfaceVariant,
+                    color: alerte || _peine
+                        ? couleurs.error
+                        : couleurs.onSurfaceVariant,
                   ),
                 ),
+                if (retirer != null || reprendre != null)
+                  Wrap(
+                    spacing: Marque.espace1,
+                    children: [
+                      TextButton.icon(
+                        key: Key('reprendre-${depot.identifiant}'),
+                        onPressed: reprendre,
+                        style: _compact,
+                        icon: const Icon(Icons.replay, size: 17),
+                        label: const Text('Reprendre'),
+                      ),
+                      TextButton.icon(
+                        key: Key('retirer-${depot.identifiant}'),
+                        onPressed: retirer,
+                        style: _compact.copyWith(
+                          foregroundColor: WidgetStatePropertyAll(
+                            couleurs.error,
+                          ),
+                        ),
+                        icon: const Icon(Icons.delete_outline, size: 17),
+                        label: const Text('Retirer'),
+                      ),
+                    ],
+                  ),
               ],
             ),
           ),
@@ -600,4 +818,82 @@ class _Vignette extends StatelessWidget {
       ),
     );
   }
+}
+
+/// D'où vient la pièce à déposer.
+enum SourceDuDepot { appareil, galerie, fichier }
+
+/// Demande à l'adhérent d'où vient sa pièce : photo, galerie ou scan déjà fait
+/// (19 octobre 2026). Rend `null` s'il referme la feuille.
+///
+/// ⚠️ Le bouton central de la barre, lui, ouvre l'appareil photo d'un appui : c'est
+/// le geste de tous les jours. Cette feuille sert quand le cabinet DEMANDE une
+/// pièce, que l'adhérent a souvent déjà reçue en PDF par courriel.
+///
+/// Une seule source branchée : pas de question, on l'ouvre.
+Future<SourceDuDepot?> choisirLaSourceDuDepot(
+  BuildContext context,
+  PriseDeVue priseDeVue,
+) async {
+  if (priseDeVue.galerie == null && priseDeVue.fichiers == null) {
+    return SourceDuDepot.appareil;
+  }
+  return ouvrirUneFeuille<SourceDuDepot>(
+    context,
+    construire: (contexte) {
+      final couleurs = Theme.of(contexte).colorScheme;
+      Widget choix(
+        SourceDuDepot source,
+        IconData icone,
+        String titre,
+        String detail,
+      ) => ListTile(
+        key: Key('source-${source.name}'),
+        contentPadding: EdgeInsets.zero,
+        leading: Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: couleurs.primaryContainer,
+          ),
+          child: Icon(icone, color: couleurs.primary, size: 22),
+        ),
+        title: Text(titre, style: Theme.of(contexte).textTheme.titleSmall),
+        subtitle: Text(detail),
+        onTap: () => Navigator.of(contexte).pop(source),
+      );
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Déposer une pièce',
+            style: Theme.of(contexte).textTheme.titleLarge,
+          ),
+          const SizedBox(height: Marque.espace3),
+          choix(
+            SourceDuDepot.appareil,
+            Icons.photo_camera_outlined,
+            'Photographier',
+            'La facture est devant vous, sur papier.',
+          ),
+          if (priseDeVue.galerie != null)
+            choix(
+              SourceDuDepot.galerie,
+              Icons.photo_library_outlined,
+              'Choisir dans la galerie',
+              'Reçue en photo, par WhatsApp par exemple.',
+            ),
+          if (priseDeVue.fichiers != null)
+            choix(
+              SourceDuDepot.fichier,
+              Icons.upload_file_outlined,
+              'Importer un scan (PDF)',
+              'Reçue par courriel, ou scannée au bureau.',
+            ),
+        ],
+      );
+    },
+  );
 }

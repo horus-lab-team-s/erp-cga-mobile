@@ -3,11 +3,15 @@ import 'package:flutter/services.dart';
 
 import '../composants/anneau.dart';
 import '../composants/carte.dart';
+import '../composants/choix_du_dossier.dart';
+import '../composants/etat.dart';
 import '../composants/joindre.dart';
 import '../contenu/cabinet.dart';
 import '../domaine/document_recu.dart';
 import '../domaine/echeance.dart';
+import '../domaine/fraicheur.dart';
 import '../domaine/mon_mois.dart';
+import '../composants/actions.dart';
 import '../marque.dart';
 import '../ports/service_de_session.dart';
 import '../ports/service_du_tableau_de_bord.dart';
@@ -38,24 +42,76 @@ class EcranTableauDeBord extends StatefulWidget {
     super.key,
     required this.session,
     required this.tableau,
-    required this.dossiers,
+    required this.dossier,
     required this.quandSessionExpire,
     required this.allerALOnglet,
     required this.ouvrirMesPieces,
+    this.deposerAuChoix,
     this.ouvrirPiece,
     this.seDeconnecter,
+    this.honorairesDus,
+    this.ouvrirHonoraires,
+    this.ouvrirMonEntreprise,
+    this.dossiers = const [],
+    this.noms = const {},
+    this.choisirLeDossier,
+    this.quandNomConnu,
+    this.deposerPourLaDemande,
+    this.apresLecture,
   });
+
+  /// Tous les dossiers du compte, pour le choix de l'en-tête. Un seul : pas de
+  /// choix à offrir.
+  final List<String> dossiers;
+
+  /// Les noms d'entreprise déjà connus, par NIU.
+  final Map<String, String> noms;
+
+  /// L'adhérent change d'entreprise : la coquille fait suivre tous les écrans.
+  final ValueChanged<String>? choisirLeDossier;
+
+  /// Le mois rend le nom de l'entreprise : la coquille le retient pour le choix.
+  final void Function(String dossier, String nom)? quandNomConnu;
+
+  /// 20 octobre 2026 : déposer EN RÉPONSE à une demande du cabinet, pour que la
+  /// file garde son numéro. `null` : le dépôt ordinaire.
+  final void Function(String demande)? deposerPourLaDemande;
+
+  /// Chaque lecture réussie des échéances, pour les rappels posés sur le téléphone.
+  final void Function(Echeancier)? apresLecture;
+
+  /// Ouvre « Mon entreprise » ; à défaut, l'onglet « Plus » qui la range.
+  final VoidCallback? ouvrirMonEntreprise;
+
+  /// 18 octobre 2026 : ce que l'adhérent doit au cabinet, lu par la coquille.
+  /// `null` ou zéro : rien à régler, la carte ne paraît pas.
+  final int? honorairesDus;
+
+  /// Ouvre l'écran des honoraires, là où l'on règle par mobile money.
+  final VoidCallback? ouvrirHonoraires;
 
   final ServiceDeSession session;
   final ServiceDuTableauDeBord tableau;
 
-  /// ⚠️ Jamais vide : la coquille ne construit cet écran qu'avec un dossier.
-  final List<String> dossiers;
+  /// Le dossier choisi. ⚠️ 20 octobre 2026 : c'était `dossiers.first`, quel que
+  /// soit le choix fait ailleurs ; c'est désormais l'en-tête qui le décide.
+  final String dossier;
   final VoidCallback quandSessionExpire;
 
   /// Mène à un onglet de la coquille, par son rang.
   final void Function(int) allerALOnglet;
   final VoidCallback ouvrirMesPieces;
+
+  /// Déposer en choisissant la source : photo, galerie ou scan. `null` : on
+  /// ouvre l'onglet de dépôt, comme le bouton central.
+  final VoidCallback? deposerAuChoix;
+
+  void _deposer() =>
+      deposerAuChoix != null ? deposerAuChoix!() : allerALOnglet(ongletDeposer);
+
+  void _deposerPour(String demande) => deposerPourLaDemande != null
+      ? deposerPourLaDemande!(demande)
+      : _deposer();
 
   /// Ouvre le document d'une pièce déposée. `null` : pas de visionneuse.
   final void Function(String piece)? ouvrirPiece;
@@ -69,13 +125,15 @@ class EcranTableauDeBord extends StatefulWidget {
   static const ongletEcheances = 1;
   static const ongletDeposer = 2;
   static const ongletDocuments = 3;
-  static const ongletEntreprise = 4;
+
+  /// 18 octobre 2026 : « Plus » a pris la place d'« Entreprise ».
+  static const ongletPlus = 4;
 
   @override
-  State<EcranTableauDeBord> createState() => _EtatDuTableauDeBord();
+  State<EcranTableauDeBord> createState() => EtatDuTableauDeBord();
 }
 
-class _EtatDuTableauDeBord extends State<EcranTableauDeBord> {
+class EtatDuTableauDeBord extends State<EcranTableauDeBord> {
   String? _nom;
   MonMois? _mois;
   Echeancier? _echeancier;
@@ -86,12 +144,38 @@ class _EtatDuTableauDeBord extends State<EcranTableauDeBord> {
   /// répondu : la carte le dit tout de suite, sans attendre une relecture.
   final _repondues = <String, String>{};
 
-  String get _dossier => widget.dossiers.first;
+  String get _dossier => widget.dossier;
+
+  /// ⚠️ 20 octobre 2026 : voir `Fraicheur`. Revenir sur l'onglet ne relit plus
+  /// quatre routes à chaque fois ; seulement quand la lecture a cinq minutes.
+  final _fraicheur = Fraicheur();
 
   @override
   void initState() {
     super.initState();
     _relire();
+  }
+
+  @override
+  void didUpdateWidget(EcranTableauDeBord oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.dossier != widget.dossier) {
+      setState(() {
+        _mois = null;
+        _echeancier = null;
+        _documents = null;
+      });
+      _relire();
+    }
+  }
+
+  /// Relu par la coquille au retour sur l'onglet : une échéance réglée ailleurs
+  /// doit quitter les retards de l'accueil (18 octobre 2026).
+  ///
+  /// ⚠️ 20 octobre 2026 : seulement si la dernière lecture a plus de cinq minutes ;
+  /// [forcer] après un geste fait ailleurs (une période réglée, une preuve).
+  Future<void> relire({bool forcer = false}) async {
+    if (forcer || _fraicheur.perimee) await _relire();
   }
 
   /// ⚠️ LES QUATRE LECTURES PARTENT ENSEMBLE : en 3G, les enchaîner
@@ -121,9 +205,58 @@ class _EtatDuTableauDeBord extends State<EcranTableauDeBord> {
       _enCours = false;
       _repondues.clear();
     });
+    if (m.serveurJoignable && m.denomination.isNotEmpty) {
+      widget.quandNomConnu?.call(_dossier, m.denomination);
+    }
+    if (e.serveurJoignable && e.copieDu == null) widget.apresLecture?.call(e);
+    if (m.serveurJoignable && m.copieDu == null) _fraicheur.marquer();
+  }
+
+  /// « Je n'ai pas ce document » part après cinq secondes, sauf « Annuler ».
+  ///
+  /// ⚠️ 20 octobre 2026 : CETTE RÉPONSE-LÀ SE RATTRAPE. Elle dit au cabinet de
+  /// cesser d'attendre la pièce, et le bouton est à un pouce de « Déposer la
+  /// pièce » : un appui de travers, sur un écran qui défile, partait sans retour.
+  /// « Je l'aurai la semaine prochaine » n'engage à rien et part tout de suite.
+  Future<bool> _laisserLeTempsDAnnuler(
+    Attendue a,
+    NatureDeReponse nature,
+  ) async {
+    setState(() => _repondues[a.demande] = nature.libelle);
+    final messager = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
+    final raison = await messager
+        .showSnackBar(
+          SnackBar(
+            key: const Key('annuler-la-reponse'),
+            behavior: SnackBarBehavior.floating,
+            margin: EdgeInsets.fromLTRB(
+              16,
+              0,
+              16,
+              Marque.espaceSousLaBarreDe(context) - 8,
+            ),
+            content: Text('« ${nature.libelle} » part au cabinet.'),
+            duration: const Duration(seconds: 5),
+            // ⚠️ `persist: false` : une barre qui porte une action reste sinon
+            // affichée jusqu'au geste, et la réponse ne partirait jamais.
+            persist: false,
+            action: SnackBarAction(label: 'Annuler', onPressed: () {}),
+          ),
+        )
+        .closed;
+    if (!mounted) return false;
+    if (raison == SnackBarClosedReason.action) {
+      setState(() => _repondues.remove(a.demande));
+      return false;
+    }
+    return true;
   }
 
   Future<void> _repondre(Attendue a, NatureDeReponse nature) async {
+    if (nature == NatureDeReponse.introuvable &&
+        !await _laisserLeTempsDAnnuler(a, nature)) {
+      return;
+    }
     final sort = await widget.tableau.repondre(
       demande: a.demande,
       nature: nature,
@@ -144,10 +277,15 @@ class _EtatDuTableauDeBord extends State<EcranTableauDeBord> {
             'actualiser.',
       _ => "Le serveur n'a pas répondu. Votre réponse n'est pas partie.",
     };
-    if (sort == SortDeLaReponse.transmise ||
-        sort == SortDeLaReponse.dejaRecue) {
-      setState(() => _repondues[a.demande] = nature.libelle);
-    }
+    setState(() {
+      if (sort == SortDeLaReponse.transmise ||
+          sort == SortDeLaReponse.dejaRecue) {
+        _repondues[a.demande] = nature.libelle;
+      } else {
+        // La réponse n'est pas partie : la carte rend ses boutons.
+        _repondues.remove(a.demande);
+      }
+    });
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
@@ -183,6 +321,9 @@ class _EtatDuTableauDeBord extends State<EcranTableauDeBord> {
                       nom: _nom,
                       denomination: m?.denomination ?? '',
                       dossier: _dossier,
+                      dossiers: widget.dossiers,
+                      noms: widget.noms,
+                      choisirLeDossier: widget.choisirLeDossier,
                       seDeconnecter: widget.seDeconnecter,
                     ),
                     if (m != null)
@@ -192,16 +333,21 @@ class _EtatDuTableauDeBord extends State<EcranTableauDeBord> {
                           offset: const Offset(0, -34),
                           child: m.serveurJoignable
                               ? _BandeauDuMois(mois: m)
-                              : const _HorsLigne(),
+                              : _HorsLigne(serveurEnPanne: m.serveurEnPanne),
                         ),
                       ),
                   ],
                 ),
               ),
+              // 20 octobre 2026 : la forme de la page qui vient, et non une roue.
               if (_enCours && m == null)
-                const SliverFillRemaining(
-                  hasScrollBody: false,
-                  child: Center(child: CircularProgressIndicator()),
+                const SliverToBoxAdapter(
+                  child: Squelette(
+                    defile: false,
+                    chapeau: false,
+                    hauteurDeCarte: 110,
+                    marge: EdgeInsets.fromLTRB(20, 0, 20, 0),
+                  ),
                 )
               else
                 SliverToBoxAdapter(child: _corps(context)),
@@ -222,6 +368,10 @@ class _EtatDuTableauDeBord extends State<EcranTableauDeBord> {
         !m.serveurJoignable ||
         (e != null && !e.serveurJoignable) ||
         (d != null && !d.serveurJoignable);
+    // 20 octobre 2026 : ce qui s'affiche vient des copies gardées ; la plus vieille
+    // des trois donne la date du bandeau.
+    final copies = [?m.copieDu, ?e?.copieDu, ?d?.copieDu]..sort();
+    final copieDu = copies.firstOrNull;
 
     return Padding(
       // ⚠️ La barre du bas FLOTTE au-dessus de la page : rien ne la déduit.
@@ -235,8 +385,20 @@ class _EtatDuTableauDeBord extends State<EcranTableauDeBord> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (horsLigne && m.serveurJoignable) ...[
-            const _HorsLigne(),
+          if (copieDu != null) ...[
+            BandeauHorsLigne(
+              copieDu: copieDu,
+              serveurEnPanne:
+                  m.serveurEnPanne ||
+                  (e?.serveurEnPanne ?? false) ||
+                  (d?.serveurEnPanne ?? false),
+            ),
+            const SizedBox(height: 16),
+          ] else if (horsLigne && m.serveurJoignable) ...[
+            _HorsLigne(
+              serveurEnPanne:
+                  (e?.serveurEnPanne ?? false) || (d?.serveurEnPanne ?? false),
+            ),
             const SizedBox(height: 16),
           ],
 
@@ -248,11 +410,16 @@ class _EtatDuTableauDeBord extends State<EcranTableauDeBord> {
           // pour lui — se lisent d'un regard, chacun avec son signe, et chacun
           // mène à l'écran qui le détaille.
           _TroisChiffres(
-            attendues: m.attendues.length,
+            // ⚠️ 19 octobre 2026 : seules les demandes SANS RÉPONSE, comme la phrase
+            // du serveur (« Il manque 2 justificatifs »). La tuile comptait aussi
+            // celles où l'adhérent a déjà dit « je l'envoie la semaine prochaine »,
+            // et l'accueil affichait 3 et 2 l'un sous l'autre.
+            attendues: m.attendues
+                .where((a) => (_repondues[a.demande] ?? a.reponse) == null)
+                .length,
             enRetard: e?.periodesEnRetard,
             documents: d?.documents.length,
-            surAttendues: () =>
-                widget.allerALOnglet(EcranTableauDeBord.ongletDeposer),
+            surAttendues: widget._deposer,
             surRetards: () =>
                 widget.allerALOnglet(EcranTableauDeBord.ongletEcheances),
             surDocuments: () =>
@@ -261,15 +428,61 @@ class _EtatDuTableauDeBord extends State<EcranTableauDeBord> {
           const SizedBox(height: Marque.espace6),
 
           // ── Le geste principal ───────────────────────────────────────────
-          _GrandeAction(
-            surAppui: () =>
-                widget.allerALOnglet(EcranTableauDeBord.ongletDeposer),
-          ),
+          _GrandeAction(surAppui: widget._deposer),
           const SizedBox(height: Marque.espace6),
+
+          // ── Les honoraires dus (18 octobre 2026) ─────────────────────────
+          //
+          // ⚠️ Le règlement est rangé sous « Plus » ; sans cette carte, un
+          // adhérent en retard ne le trouverait qu'en cherchant. Elle ne paraît
+          // que s'il y a un montant dû, et mène droit à l'écran du paiement.
+          if ((widget.honorairesDus ?? 0) > 0 &&
+              widget.ouvrirHonoraires != null) ...[
+            Carte(
+              key: const Key('accueil-honoraires'),
+              ton: TonDeCarte.accent,
+              surAppui: widget.ouvrirHonoraires,
+              child: Row(
+                children: [
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.account_balance_wallet_outlined,
+                      color: Theme.of(context).colorScheme.onPrimaryContainer,
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${montantFcfa(widget.honorairesDus!)} d\'honoraires à régler',
+                          style: texte.titleSmall,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Réglez par mobile money, en deux gestes.',
+                          style: texte.bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right),
+                ],
+              ),
+            ),
+            const SizedBox(height: Marque.espace6),
+          ],
 
           // ── Ce que le cabinet demande ────────────────────────────────────
           if (m.attendues.isNotEmpty) ...[
-            Text('Ce que le cabinet vous demande', style: texte.titleMedium),
+            const TitreDeSection('Ce que le cabinet vous demande'),
             const SizedBox(height: 4),
             Text(
               'Déposez la pièce, ou dites au cabinet où vous en êtes.',
@@ -282,8 +495,7 @@ class _EtatDuTableauDeBord extends State<EcranTableauDeBord> {
                 child: _CarteAttendue(
                   attendue: a,
                   repondu: _repondues[a.demande] ?? a.reponse,
-                  surDeposer: () =>
-                      widget.allerALOnglet(EcranTableauDeBord.ongletDeposer),
+                  surDeposer: () => widget._deposerPour(a.demande),
                   surRepondre: (nature) => _repondre(a, nature),
                   surVoirLaPiece:
                       a.pieceARectifier == null || widget.ouvrirPiece == null
@@ -296,7 +508,7 @@ class _EtatDuTableauDeBord extends State<EcranTableauDeBord> {
 
           // ── Les échéances ────────────────────────────────────────────────
           if (e != null && e.serveurJoignable) ...[
-            Text('Vos échéances', style: texte.titleMedium),
+            const TitreDeSection('Vos échéances'),
             const SizedBox(height: 10),
             _ResumeDesEcheances(
               echeancier: e,
@@ -308,21 +520,14 @@ class _EtatDuTableauDeBord extends State<EcranTableauDeBord> {
 
           // ── Les documents du cabinet ─────────────────────────────────────
           if (d != null && d.serveurJoignable && d.documents.isNotEmpty) ...[
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Déposés pour vous par le cabinet',
-                    style: texte.titleMedium,
-                  ),
-                ),
-                TextButton(
-                  key: const Key('voir-documents'),
-                  onPressed: () =>
-                      widget.allerALOnglet(EcranTableauDeBord.ongletDocuments),
-                  child: const Text('Tout voir'),
-                ),
-              ],
+            TitreDeSection(
+              'Déposés pour vous par le cabinet',
+              complement: TextButton(
+                key: const Key('voir-documents'),
+                onPressed: () =>
+                    widget.allerALOnglet(EcranTableauDeBord.ongletDocuments),
+                child: const Text('Tout voir'),
+              ),
             ),
             const SizedBox(height: 6),
             for (final doc in d.documents.take(2))
@@ -343,12 +548,13 @@ class _EtatDuTableauDeBord extends State<EcranTableauDeBord> {
           // action plus haut, et la place centrale de la barre du bas. Le
           // répéter ici en tuile de même taille que « Écrire au cabinet »
           // reviendrait à dire que les deux gestes se valent.
-          Text('Raccourcis', style: texte.titleMedium),
+          const TitreDeSection('Raccourcis'),
           const SizedBox(height: Marque.espace3),
           _Raccourcis(
             surMesPieces: widget.ouvrirMesPieces,
-            surEntreprise: () =>
-                widget.allerALOnglet(EcranTableauDeBord.ongletEntreprise),
+            surEntreprise:
+                widget.ouvrirMonEntreprise ??
+                () => widget.allerALOnglet(EcranTableauDeBord.ongletPlus),
             surEcrire: () => joindre(
               context,
               Cabinet.whatsappLien,
@@ -387,12 +593,18 @@ class _EnTete extends StatelessWidget {
     required this.nom,
     required this.denomination,
     required this.dossier,
+    this.dossiers = const [],
+    this.noms = const {},
+    this.choisirLeDossier,
     this.seDeconnecter,
   });
 
   final String? nom;
   final String denomination;
   final String dossier;
+  final List<String> dossiers;
+  final Map<String, String> noms;
+  final ValueChanged<String>? choisirLeDossier;
   final VoidCallback? seDeconnecter;
 
   @override
@@ -432,7 +644,9 @@ class _EnTete extends StatelessWidget {
               if (seDeconnecter != null)
                 IconButton(
                   key: const Key('accueil-sortir'),
-                  onPressed: seDeconnecter,
+                  onPressed: () async {
+                    if (await confirmerLaDeconnexion(context)) seDeconnecter!();
+                  },
                   color: Colors.white,
                   tooltip: 'Se déconnecter',
                   icon: const Icon(Icons.logout),
@@ -449,11 +663,15 @@ class _EnTete extends StatelessWidget {
             style: texte.headlineSmall?.copyWith(color: Colors.white),
           ),
           const SizedBox(height: 4),
-          Text(
-            denomination.isEmpty ? dossier : '$denomination · $dossier',
-            style: texte.bodyMedium?.copyWith(
-              color: Colors.white.withValues(alpha: 0.82),
-            ),
+          // 20 octobre 2026 : le nom de l'entreprise, et le choix d'une autre
+          // pour qui en a plusieurs. Voir `EntrepriseEnCours`.
+          EntrepriseEnCours(
+            dossier: dossier,
+            dossiers: dossiers,
+            noms: {...noms, if (denomination.isNotEmpty) dossier: denomination},
+            choisir: choisirLeDossier,
+            couleur: Colors.white.withValues(alpha: 0.86),
+            style: texte.bodyMedium,
           ),
         ],
       ),
@@ -472,12 +690,15 @@ class _BandeauDuMois extends StatelessWidget {
     final texte = Theme.of(context).textTheme;
     final (icone, teinte) = switch (mois.etat) {
       EtatDuMois.aEnvoyer => (Icons.upload_file, couleurs.error),
-      EtatDuMois.aucunePiece => (Icons.inbox_outlined, Marque.alerte),
+      EtatDuMois.aucunePiece => (
+        Icons.inbox_outlined,
+        Marque.alerteDe(context),
+      ),
       EtatDuMois.enVerification => (
         Icons.manage_search,
         couleurs.onSecondaryContainer,
       ),
-      EtatDuMois.complet => (Icons.task_alt, Marque.reussite),
+      EtatDuMois.complet => (Icons.task_alt, Marque.reussiteDe(context)),
     };
     return Carte(
       key: const Key('bandeau-du-mois'),
@@ -537,19 +758,27 @@ class _BandeauDuMois extends StatelessWidget {
 }
 
 class _HorsLigne extends StatelessWidget {
-  const _HorsLigne();
+  const _HorsLigne({this.serveurEnPanne = false});
+
+  /// 20 octobre 2026 : le réseau marche, c'est le serveur qui ne répond pas.
+  final bool serveurEnPanne;
 
   @override
-  Widget build(BuildContext context) => const Carte(
-    key: Key('hors-ligne'),
+  Widget build(BuildContext context) => Carte(
+    key: const Key('hors-ligne'),
     child: Row(
       children: [
-        Icon(Icons.wifi_off_outlined),
-        SizedBox(width: 12),
+        Icon(
+          serveurEnPanne ? Icons.cloud_off_outlined : Icons.wifi_off_outlined,
+        ),
+        const SizedBox(width: 12),
         Expanded(
           child: Text(
-            "Pas de réseau : ce qui s'affiche peut être incomplet. Tirez vers "
-            'le bas pour actualiser.',
+            serveurEnPanne
+                ? "Le cabinet ne répond pas : ce qui s'affiche peut être "
+                      'incomplet. Tirez vers le bas pour actualiser.'
+                : "Pas de réseau : ce qui s'affiche peut être incomplet. Tirez "
+                      'vers le bas pour actualiser.',
           ),
         ),
       ],
@@ -630,7 +859,7 @@ class _CarteAttendue extends StatelessWidget {
                 Icon(
                   Icons.check_circle_outline,
                   size: 18,
-                  color: Marque.reussite,
+                  color: Marque.reussiteDe(context),
                 ),
                 const SizedBox(width: 6),
                 Expanded(
@@ -847,7 +1076,7 @@ class _TroisChiffres extends StatelessWidget {
         'chiffre-attendues',
         Icons.inbox_outlined,
         attendues,
-        'pièce${attendues > 1 ? "s" : ""} attendue${attendues > 1 ? "s" : ""}',
+        'pièce${attendues > 1 ? "s" : ""} à envoyer',
         attendues > 0,
         surAttendues,
       ),
@@ -878,40 +1107,109 @@ class _TroisChiffres extends StatelessWidget {
       bool alerte,
       VoidCallback geste,
     ) {
-      final teinte = alerte ? couleurs.error : couleurs.primary;
+      final teinte = switch (cle) {
+        _ when alerte => couleurs.error,
+        'chiffre-documents' => Marque.reussiteDe(context),
+        'chiffre-retards' => Marque.indigoDe(context),
+        _ => couleurs.primary,
+      };
       final nombre = Text(
         valeur == null ? '–' : '$valeur',
         style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-          color: alerte ? couleurs.error : couleurs.onSurface,
+          fontWeight: FontWeight.w700,
+          color: alerte ? couleurs.error : couleurs.secondary,
         ),
       );
-      final mot = Text(libelle, style: Theme.of(context).textTheme.bodySmall);
-      return Carte(
-        key: Key(cle),
-        relief: ReliefDeCarte.liste,
-        surAppui: geste,
-        padding: const EdgeInsets.all(Marque.espace3),
-        child: enColonne
-            // En colonne : l'icône, le nombre et le mot sur une seule ligne.
-            ? Row(
-                children: [
-                  Icon(icone, size: 22, color: teinte),
-                  const SizedBox(width: Marque.espace3),
-                  nombre,
-                  const SizedBox(width: Marque.espace2),
-                  Expanded(child: mot),
-                ],
-              )
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(icone, size: 20, color: teinte),
-                  const SizedBox(height: Marque.espace2),
-                  nombre,
-                  const SizedBox(height: 2),
-                  mot,
-                ],
+      Widget mot(TextAlign alignement) => Text(
+        libelle,
+        textAlign: alignement,
+        style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.25),
+      );
+      // ⚠️ 19 octobre 2026 : l'icône dans un cercle de sa teinte, à cheval sur le
+      // haut de la tuile. Posée nue dans un coin, elle passait pour une
+      // décoration ; sortie de moitié, elle nomme la tuile d'un coup d'œil et
+      // allège la carte, qui n'a plus à la contenir.
+      //
+      // ⚠️ Le cercle est OPAQUE, et cerclé du fond de page : à moitié dehors, il
+      // laisserait sinon voir le bord de la carte en travers de l'icône.
+      Widget pastille({required bool aCheval}) => Container(
+        width: 46,
+        height: 46,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Color.alphaBlend(
+            teinte.withValues(alpha: 0.14),
+            couleurs.surfaceContainerLow,
+          ),
+          border: aCheval
+              ? Border.all(color: couleurs.surfaceContainerLowest, width: 3)
+              : null,
+          boxShadow: aCheval
+              ? [
+                  BoxShadow(
+                    color: teinte.withValues(alpha: 0.18),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ]
+              : null,
+        ),
+        child: Icon(icone, size: 21, color: teinte),
+      );
+      if (enColonne) {
+        return Carte(
+          key: Key(cle),
+          relief: ReliefDeCarte.liste,
+          lueur: teinte,
+          surAppui: geste,
+          padding: const EdgeInsets.all(Marque.espace3),
+          // En colonne : la pastille, le nombre et le mot sur une seule ligne.
+          child: Row(
+            children: [
+              pastille(aCheval: false),
+              const SizedBox(width: Marque.espace3),
+              nombre,
+              const SizedBox(width: Marque.espace2),
+              Expanded(child: mot(TextAlign.start)),
+            ],
+          ),
+        );
+      }
+      return Stack(
+        clipBehavior: Clip.none,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 23),
+            child: Carte(
+              key: Key(cle),
+              relief: ReliefDeCarte.liste,
+              lueur: teinte,
+              surAppui: geste,
+              padding: const EdgeInsets.fromLTRB(
+                Marque.espace2,
+                23 + Marque.espace2,
+                Marque.espace2,
+                Marque.espace3,
               ),
+              child: SizedBox(
+                width: double.infinity,
+                child: Column(
+                  children: [
+                    nombre,
+                    const SizedBox(height: 2),
+                    mot(TextAlign.center),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: IgnorePointer(child: Center(child: pastille(aCheval: true))),
+          ),
+        ],
       );
     }
 
@@ -995,7 +1293,7 @@ class _GrandeAction extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'Photographiez votre facture : elle part au cabinet.',
+                      'Photographiez ou importez votre facture : elle part au cabinet.',
                       style: texte.bodySmall?.copyWith(
                         color: Colors.white.withValues(alpha: 0.92),
                       ),
@@ -1047,26 +1345,48 @@ class _Raccourcis extends StatelessWidget {
           for (final (cle, icone, libelle, geste) in tuiles) ...[
             if (cle != 'raccourci-pieces')
               const SizedBox(width: Marque.espace3),
+            // ⚠️ 19 octobre 2026 : PLUS DE CARTE DERRIÈRE CHAQUE RACCOURCI. Trois
+            // cartes de plus sous les chiffres et la grande action faisaient un
+            // écran de boîtes. Un raccourci n'est qu'une porte : une icône dans
+            // son cercle et un mot suffisent, l'appui se voit par l'encre.
             Expanded(
-              child: Carte(
-                key: Key(cle),
-                relief: ReliefDeCarte.liste,
-                surAppui: geste,
-                padding: const EdgeInsets.symmetric(
-                  vertical: Marque.espace3,
-                  horizontal: Marque.espace2,
-                ),
-                child: Column(
-                  children: [
-                    Icon(icone, color: couleurs.primary, size: 20),
-                    const SizedBox(height: Marque.espace2),
-                    Text(
-                      libelle,
-                      textAlign: TextAlign.center,
-                      maxLines: 2,
-                      style: Theme.of(context).textTheme.labelLarge,
+              child: Semantics(
+                button: true,
+                child: InkWell(
+                  key: Key(cle),
+                  onTap: geste,
+                  borderRadius: BorderRadius.circular(Marque.rayonCarte),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: Marque.espace2,
+                      horizontal: Marque.espace1,
                     ),
-                  ],
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 48,
+                          height: 48,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: couleurs.secondaryContainer,
+                          ),
+                          child: Icon(
+                            icone,
+                            color: couleurs.secondary,
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(height: Marque.espace2),
+                        Text(
+                          libelle,
+                          textAlign: TextAlign.center,
+                          maxLines: 2,
+                          style: Theme.of(context).textTheme.labelMedium
+                              ?.copyWith(color: couleurs.onSurface),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
             ),

@@ -103,6 +103,8 @@ class MonMois {
     this.justificatifsRecus = 0,
     this.serveurJoignable = true,
     this.sessionAExpire = false,
+    this.serveurEnPanne = false,
+    this.copieDu,
   });
 
   final String denomination;
@@ -128,9 +130,24 @@ class MonMois {
   final bool serveurJoignable;
   final bool sessionAExpire;
 
-  static MonMois depuisJson(Map<String, dynamic> j) {
+  /// 20 octobre 2026 : le téléphone a du réseau, mais le serveur n'a pas répondu
+  /// comme il faut. Faux avec `serveurJoignable` faux : c'est le réseau qui manque.
+  final bool serveurEnPanne;
+
+  /// Non nul : le réseau a manqué, et ce qui s'affiche est la dernière lecture
+  /// gardée sur l'appareil, de cet instant-là. ⚠️ `serveurJoignable` reste vrai :
+  /// le contenu est lisible ; c'est cette date qui dit qu'il peut avoir vieilli.
+  final DateTime? copieDu;
+
+  static MonMois depuisJson(
+    Map<String, dynamic> j, {
+    DateTime? copieDu,
+    bool serveurEnPanne = false,
+  }) {
     final bandeau = j['bandeau'] as Map<String, dynamic>? ?? const {};
     return MonMois(
+      copieDu: copieDu,
+      serveurEnPanne: serveurEnPanne,
       denomination: j['denomination'] as String? ?? '',
       nomDuMois: j['nom_du_mois'] as String? ?? '',
       etat: EtatDuMois.depuis(bandeau['etat'] as String?),

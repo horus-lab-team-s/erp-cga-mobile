@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 
+import '../composants/actions.dart';
 import '../composants/carte.dart';
+import '../composants/etat.dart';
+import '../composants/joindre.dart';
 import '../marque.dart';
+import '../domaine/fraicheur.dart';
 import '../domaine/mon_entreprise.dart';
 import '../ports/service_de_session.dart';
 
@@ -23,12 +27,14 @@ class EcranMonEntreprise extends StatefulWidget {
   const EcranMonEntreprise({
     super.key,
     required this.session,
-    required this.dossiers,
+    required this.dossier,
     required this.quandSessionExpire,
   });
 
   final ServiceDeSession session;
-  final List<String> dossiers;
+
+  /// Le dossier choisi dans l'en-tête de l'accueil (20 octobre 2026).
+  final String dossier;
   final VoidCallback quandSessionExpire;
 
   @override
@@ -39,7 +45,15 @@ class _EtatDeLaFiche extends State<EcranMonEntreprise>
     with WidgetsBindingObserver {
   Fiche? _fiche;
   bool _lectureEnCours = true;
-  late String _dossier = widget.dossiers.first;
+  String get _dossier => widget.dossier;
+  final _fraicheur = Fraicheur();
+
+  /// Ce que l'adhérent a commencé d'écrire, par nature de changement.
+  ///
+  /// ⚠️ 20 octobre 2026 : un « Annuler » touché par erreur, ou une panne de
+  /// réseau, jetait un message tapé lettre à lettre sur un clavier de téléphone.
+  /// Il reste là, et revient quand on rouvre la même nature.
+  final _brouillons = <String, String>{};
 
   @override
   void initState() {
@@ -56,7 +70,7 @@ class _EtatDeLaFiche extends State<EcranMonEntreprise>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState etat) {
-    if (etat == AppLifecycleState.resumed) _relire();
+    if (etat == AppLifecycleState.resumed && _fraicheur.perimee) _relire();
   }
 
   Future<void> _relire() async {
@@ -68,6 +82,7 @@ class _EtatDeLaFiche extends State<EcranMonEntreprise>
       _lectureEnCours = false;
     });
     if (lu.sessionAExpire) widget.quandSessionExpire();
+    if (lu.serveurJoignable) _fraicheur.marquer();
   }
 
   Future<void> _signaler(MonEntreprise e) async {
@@ -78,18 +93,27 @@ class _EtatDeLaFiche extends State<EcranMonEntreprise>
     );
     if (nature == null || !mounted) return;
 
-    final message = await showDialog<String>(
+    // ⚠️ 20 octobre 2026 : L'ENVOI SE FAIT DANS LA BOÎTE, qui reste ouverte tant
+    // qu'il n'a pas abouti. La boîte se fermait avant l'envoi : rien ne disait
+    // qu'il était en cours, et une panne de réseau perdait le message.
+    final sort = await showDialog<SortDuSignalement>(
       context: context,
-      builder: (_) => _SaisieDuMessage(nature: nature),
+      builder: (_) => _SaisieDuMessage(
+        nature: nature,
+        brouillon: _brouillons[nature.code] ?? '',
+        retenir: (texte) => _brouillons[nature.code] = texte,
+        envoyer: (message) => widget.session.signalerUnChangement(
+          dossier: _dossier,
+          nature: nature.code,
+          message: message,
+        ),
+      ),
     );
-    if (message == null || !mounted) return;
-
-    final sort = await widget.session.signalerUnChangement(
-      dossier: _dossier,
-      nature: nature.code,
-      message: message,
-    );
-    if (!mounted) return;
+    if (sort == null || !mounted) return;
+    if (sort == SortDuSignalement.transmis ||
+        sort == SortDuSignalement.dejaSignale) {
+      _brouillons.remove(nature.code);
+    }
 
     final interlocuteur = e.interlocuteur?.nom;
     // ⚠️ Chaque sort a sa phrase, et deux d'entre elles demandent du soin :
@@ -138,51 +162,29 @@ class _EtatDeLaFiche extends State<EcranMonEntreprise>
   Widget build(BuildContext context) {
     final f = _fiche;
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Mon entreprise'),
-        actions: [
-          if (widget.dossiers.length > 1)
-            PopupMenuButton<String>(
-              key: const Key('choix-dossier-fiche'),
-              initialValue: _dossier,
-              tooltip: 'Changer de dossier',
-              icon: const Icon(Icons.folder_outlined),
-              onSelected: (d) {
-                setState(() => _dossier = d);
-                _relire();
-              },
-              itemBuilder: (_) => [
-                for (final d in widget.dossiers)
-                  PopupMenuItem(value: d, child: Text(d)),
-              ],
-            ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('Mon entreprise')),
       body: RefreshIndicator(
         onRefresh: _relire,
         child: switch ((_lectureEnCours, f)) {
-          (true, null) => const Center(
+          (true, null) => const Squelette(
             key: Key('fiche-en-attente'),
-            child: CircularProgressIndicator(),
+            cartes: 2,
+            hauteurDeCarte: 140,
           ),
-          (_, null) => const _RienDuTout(
-            titre: 'Fiche indisponible',
-            detail: 'Le serveur n\'a pas répondu.',
-            icone: Icons.cloud_off_outlined,
-          ),
-          (_, final Fiche x) when x.sessionAExpire => const _RienDuTout(
+          (_, null) => EtatDePanne(serveurEnPanne: true, reessayer: _relire),
+          (_, final Fiche x) when x.sessionAExpire => const EtatVide(
             titre: 'Session expirée',
             detail: 'Reconnectez-vous pour consulter votre fiche.',
             icone: Icons.lock_outline,
           ),
-          (_, final Fiche x) when !x.serveurJoignable => const _RienDuTout(
-            titre: 'Pas de réseau',
-            detail:
+          (_, final Fiche x) when !x.serveurJoignable => EtatDePanne(
+            serveurEnPanne: x.serveurEnPanne,
+            horsLigne:
                 'Votre fiche se lit sur le serveur. Elle reparaîtra dès que la '
                 'connexion revient.',
-            icone: Icons.wifi_off_outlined,
+            reessayer: _relire,
           ),
-          (_, final Fiche x) when x.entreprise == null => const _RienDuTout(
+          (_, final Fiche x) when x.entreprise == null => const EtatVide(
             titre: 'Aucune fiche',
             detail: 'Appelez votre chargé de clientèle.',
             icone: Icons.help_outline,
@@ -310,6 +312,14 @@ class _Contenu extends StatelessWidget {
                   valeur: e.interlocuteur!.courriel!,
                 ),
             ],
+          ),
+          // 19 octobre 2026 : le numéro et l'adresse n'étaient que du texte. L'occasion
+          // d'appeler, ou d'écrire sur WhatsApp, était là, sans geste pour la saisir.
+          const SizedBox(height: 10),
+          _JoindreLInterlocuteur(
+            telephone: e.interlocuteur!.telephone,
+            courriel: e.interlocuteur!.courriel,
+            denomination: e.denomination,
           ),
         ],
 
@@ -452,6 +462,9 @@ class _Ligne extends StatelessWidget {
               ).textTheme.bodySmall?.copyWith(color: couleurs.onSurfaceVariant),
             ),
           ),
+          // 19 octobre 2026 : sans espace, un intitulé qui remplit sa colonne
+          // (« Chargé de clientèle ») venait toucher la valeur sur le TECNO.
+          const SizedBox(width: 12),
           Expanded(
             child: Text(
               valeur,
@@ -511,18 +524,37 @@ class _ChoixDeNature extends StatelessWidget {
   }
 }
 
-/// La saisie du message. ⚠️ Cinq caractères au moins : c'est la borne du
-/// serveur, appliquée ici pour qu'un envoi ne parte pas se faire refuser.
+/// La saisie du message, et son envoi. ⚠️ Cinq caractères au moins : c'est la
+/// borne du serveur, appliquée ici pour qu'un envoi ne parte pas se faire refuser.
+///
+/// ⚠️ 20 octobre 2026 : la boîte reste ouverte pendant l'envoi, roue dans le bouton,
+/// et ne se ferme qu'une fois le cabinet prévenu. Une panne laisse le texte en
+/// place, avec un mot pour réessayer.
 class _SaisieDuMessage extends StatefulWidget {
-  const _SaisieDuMessage({required this.nature});
+  const _SaisieDuMessage({
+    required this.nature,
+    required this.envoyer,
+    this.brouillon = '',
+    this.retenir,
+  });
+
   final NatureDeChangement nature;
+  final Future<SortDuSignalement> Function(String message) envoyer;
+
+  /// Ce que l'adhérent avait déjà écrit pour cette nature.
+  final String brouillon;
+
+  /// Garde le texte à chaque frappe, pour qu'il survive à la boîte.
+  final ValueChanged<String>? retenir;
 
   @override
   State<_SaisieDuMessage> createState() => _EtatDeLaSaisie();
 }
 
 class _EtatDeLaSaisie extends State<_SaisieDuMessage> {
-  final _controleur = TextEditingController();
+  late final _controleur = TextEditingController(text: widget.brouillon);
+  bool _enCours = false;
+  String? _echec;
 
   @override
   void dispose() {
@@ -530,76 +562,156 @@ class _EtatDeLaSaisie extends State<_SaisieDuMessage> {
     super.dispose();
   }
 
+  Future<void> _envoyer() async {
+    setState(() {
+      _enCours = true;
+      _echec = null;
+    });
+    final sort = await widget.envoyer(_controleur.text.trim());
+    if (!mounted) return;
+    switch (sort) {
+      case SortDuSignalement.indisponible:
+        setState(() {
+          _enCours = false;
+          _echec =
+              'Pas de réseau : le signalement n\'est pas parti. Votre texte est '
+              'gardé ; réessayez.';
+        });
+      case SortDuSignalement.refuse:
+        setState(() {
+          _enCours = false;
+          _echec = 'Le cabinet n\'a pas pu enregistrer ce signalement.';
+        });
+      case SortDuSignalement.transmis ||
+          SortDuSignalement.dejaSignale ||
+          SortDuSignalement.sessionExpiree:
+        Navigator.of(context).pop(sort);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final assezLong = _controleur.text.trim().length >= 5;
-    return AlertDialog(
-      title: Text(widget.nature.libelle),
-      content: TextField(
-        key: const Key('message-du-signalement'),
-        controller: _controleur,
-        autofocus: true,
-        maxLines: 4,
-        maxLength: 1000,
-        onChanged: (_) => setState(() {}),
-        decoration: const InputDecoration(
-          hintText: 'Décrivez le changement',
-          border: OutlineInputBorder(),
+    return PopScope(
+      canPop: !_enCours,
+      child: AlertDialog(
+        title: Text(widget.nature.libelle),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              key: const Key('message-du-signalement'),
+              controller: _controleur,
+              autofocus: true,
+              enabled: !_enCours,
+              maxLines: 4,
+              maxLength: 1000,
+              onChanged: (texte) {
+                widget.retenir?.call(texte);
+                setState(() {});
+              },
+              decoration: const InputDecoration(
+                hintText: 'Décrivez le changement',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            if (_echec != null)
+              Text(
+                _echec!,
+                key: const Key('echec-du-signalement'),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.error,
+                ),
+              ),
+          ],
         ),
+        actions: [
+          TextButton(
+            onPressed: _enCours ? null : () => Navigator.of(context).pop(),
+            child: const Text('Annuler'),
+          ),
+          BoutonDAction(
+            key: const Key('envoyer-le-signalement'),
+            libelle: _echec == null ? 'Envoyer' : 'Réessayer',
+            libelleEnCours: 'Envoi…',
+            icone: Icons.send_rounded,
+            enCours: _enCours,
+            surAppui: assezLong ? _envoyer : null,
+          ),
+        ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Annuler'),
-        ),
-        FilledButton(
-          key: const Key('envoyer-le-signalement'),
-          onPressed: assezLong
-              ? () => Navigator.of(context).pop(_controleur.text.trim())
-              : null,
-          child: const Text('Envoyer'),
-        ),
-      ],
     );
   }
 }
 
-class _RienDuTout extends StatelessWidget {
-  const _RienDuTout({
-    required this.titre,
-    required this.detail,
-    required this.icone,
+/// Appeler, écrire sur WhatsApp ou par courriel, en un appui (19 octobre 2026).
+class _JoindreLInterlocuteur extends StatelessWidget {
+  const _JoindreLInterlocuteur({
+    required this.telephone,
+    required this.courriel,
+    required this.denomination,
   });
 
-  final String titre;
-  final String detail;
-  final IconData icone;
+  final String? telephone;
+  final String? courriel;
+  final String denomination;
+
+  /// Les chiffres seuls, indicatif du Cameroun compris : sans lui, WhatsApp ouvre
+  /// une conversation avec un numéro étranger.
+  String? get _international {
+    final chiffres = (telephone ?? '').replaceAll(RegExp(r'[^0-9]'), '');
+    if (chiffres.isEmpty) return null;
+    return chiffres.startsWith('237') ? chiffres : '237$chiffres';
+  }
 
   @override
   Widget build(BuildContext context) {
-    final couleurs = Theme.of(context).colorScheme;
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(32, 90, 32, 32),
+    final numero = _international;
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
       children: [
-        Icon(icone, size: 44, color: couleurs.onSurfaceVariant),
-        const SizedBox(height: 18),
-        Text(
-          titre,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: couleurs.onSurface,
+        if (numero != null)
+          FilledButton.tonalIcon(
+            key: const Key('interlocuteur-appeler'),
+            onPressed: () => joindre(
+              context,
+              Uri(scheme: 'tel', path: '+$numero'),
+              aCopier: telephone!,
+            ),
+            icon: const Icon(Icons.call_outlined, size: 18),
+            label: const Text('Appeler'),
           ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          detail,
-          textAlign: TextAlign.center,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: couleurs.onSurfaceVariant,
-            height: 1.5,
+        if (numero != null)
+          FilledButton.tonalIcon(
+            key: const Key('interlocuteur-whatsapp'),
+            onPressed: () => joindre(
+              context,
+              Uri.https('wa.me', '/$numero', {
+                'text':
+                    'Bonjour, je vous écris au sujet du dossier $denomination.',
+              }),
+              aCopier: telephone!,
+            ),
+            icon: const Icon(Icons.chat_outlined, size: 18),
+            label: const Text('WhatsApp'),
           ),
-        ),
+        if (courriel != null)
+          OutlinedButton.icon(
+            key: const Key('interlocuteur-courriel'),
+            onPressed: () => joindre(
+              context,
+              Uri(
+                scheme: 'mailto',
+                path: courriel,
+                queryParameters: {'subject': 'Dossier $denomination'},
+              ),
+              aCopier: courriel!,
+            ),
+            icon: const Icon(Icons.mail_outline, size: 18),
+            label: const Text('Écrire'),
+          ),
       ],
     );
   }

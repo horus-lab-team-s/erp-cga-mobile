@@ -124,7 +124,7 @@ void main() {
         theme: themeClair(),
         home: EcranHistorique(
           session: session,
-          dossiers: dossiers,
+          dossier: dossiers.first,
           quandSessionExpire: quandSessionExpire ?? () {},
         ),
       ),
@@ -291,7 +291,7 @@ void main() {
       expect(find.text('Pas de réseau'), findsOneWidget);
       expect(find.text('Aucune pièce remise'), findsNothing);
       expect(
-        find.textContaining('Vos pièces remises sont chez le cabinet'),
+        find.textContaining('Vos pièces envoyées sont chez le cabinet'),
         findsOneWidget,
       );
     });
@@ -348,38 +348,20 @@ void main() {
     });
   });
 
-  group('Le choix du dossier', () {
-    testWidgets('n\'apparaît pas quand le compte n\'en a qu\'un', (
+  // ⚠️ 20 octobre 2026 : l'écran n'a plus de sélecteur à lui. Le choix se fait dans
+  // l'en-tête de l'accueil, et vaut pour tous les écrans (voir `coquille_test`).
+  testWidgets('lit le dossier choisi, et lui seul, sans offrir de choix', (
+    testeur,
+  ) async {
+    final session = await poser(
       testeur,
-    ) async {
-      await poser(testeur, dossiers: const ['M081234567890P']);
-      await testeur.pumpAndSettle();
+      dossiers: const ['M099887766554A', 'M081234567890P'],
+    );
+    await testeur.pumpAndSettle();
 
-      // Une liste déroulante à un seul choix est un bouton qui ne fait rien.
-      expect(find.byKey(const Key('choix-dossier')), findsNothing);
-    });
-
-    testWidgets('apparaît dès qu\'il y en a deux, et relit le serveur', (
-      testeur,
-    ) async {
-      final session = await poser(
-        testeur,
-        dossiers: const ['M081234567890P', 'M099887766554A'],
-      );
-      await testeur.pumpAndSettle();
-      expect(session.demandes, ['M081234567890P']);
-
-      await testeur.tap(find.byKey(const Key('choix-dossier')));
-      await testeur.pumpAndSettle();
-      await testeur.tap(find.text('M099887766554A').last);
-      await testeur.pumpAndSettle();
-
-      // ⚠️ On vérifie la DEMANDE, pas seulement l'affichage. Un sélecteur qui
-      // change le titre sans relire montrerait les pièces du dossier précédent
-      // sous le nom du nouveau — et l'adhérent qui tient deux sociétés
-      // conclurait que le cabinet a perdu ses pièces.
-      expect(session.demandes, ['M081234567890P', 'M099887766554A']);
-    });
+    expect(session.demandes, ['M099887766554A']);
+    expect(find.byKey(const Key('choix-dossier')), findsNothing);
+    expect(find.text('Mes pièces envoyées'), findsOneWidget);
   });
 
   group("Revenir dans l'application", () {
@@ -413,6 +395,13 @@ void main() {
         ],
       );
 
+      // ⚠️ 20 octobre 2026 : un retour dans les cinq minutes ne relit pas (voir
+      // `Fraicheur`) ; l'appel au cabinet, lui, a duré plus longtemps.
+      testeur.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await testeur.pumpAndSettle();
+      expect(session.demandes.length, 1, reason: 'Lue il y a un instant.');
+
+      await testeur.pump(const Duration(minutes: 6));
       testeur.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await testeur.pumpAndSettle();
 
